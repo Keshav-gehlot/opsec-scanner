@@ -1,0 +1,21 @@
+__pycache__/
+*.pyc
+*.pyo
+*.db
+.venv/
+.pytest_cache/
+.opsec-scan/
+target_profile.yaml
+*.egg-info/
+opsec_report.html
+opsec_report.json
+opsec_platform/.env
+opsec_platform/platform.db
+
+# Local/generated demo state
+sample_demo_repo/.git/
+*.sqlite
+*.sqlite3
+.env
+.env.*
+!.env.example
