@@ -31,6 +31,33 @@ def create_app() -> FastAPI:
     from opsec_platform.app.dependencies import _engine
     init_db(_engine)
 
+    # Bootstrap the requested fixed local administrator account. This is
+    # idempotent, so a fresh Render filesystem/redeploy still has a usable admin.
+    from opsec_platform.app.dependencies import _SessionLocal
+    from opsec_platform.app.models import Org, User
+    from opsec_platform.app.security import hash_password
+    db = _SessionLocal()
+    try:
+        admin = db.query(User).filter(User.email == "admin@opsec.local").first()
+        if admin is None:
+            org = db.query(Org).filter(Org.name == "OPSEC Scanner").first()
+            if org is None:
+                org = Org(name="OPSEC Scanner")
+                db.add(org)
+                db.flush()
+            db.add(User(
+                org_id=org.id,
+                email="admin@opsec.local",
+                display_name="Administrator",
+                hashed_password=hash_password("admin123"),
+                auth_provider="local",
+                is_org_admin=True,
+                is_active=True,
+            ))
+            db.commit()
+    finally:
+        db.close()
+
     app.include_router(auth_routes.router)
     app.include_router(oauth_routes.router)
     app.include_router(activity_routes.router)
