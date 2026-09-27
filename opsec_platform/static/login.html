@@ -532,7 +532,12 @@
 
         const body = response.headers.get('content-type')?.includes('application/json') ? await response.json() : null;
         if (!response.ok) {
-          const detail = body && body.detail ? body.detail : 'Request failed.';
+          const rawDetail = body && body.detail ? body.detail : 'Request failed.';
+          const detail = typeof rawDetail === 'string'
+            ? rawDetail
+            : Array.isArray(rawDetail)
+              ? rawDetail.map(item => item && item.msg ? item.msg : JSON.stringify(item)).join(' ')
+              : JSON.stringify(rawDetail);
           throw new Error(detail);
         }
         return body;
