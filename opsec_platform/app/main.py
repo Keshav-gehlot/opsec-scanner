@@ -49,7 +49,7 @@ def create_app() -> FastAPI:
                 org_id=org.id,
                 email="admin@opsec.local",
                 display_name="Administrator",
-                hashed_password=hash_password("admin123"),
+                hashed_password=hash_password("admin12345"),
                 auth_provider="local",
                 is_org_admin=True,
                 is_active=True,
