@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OPSEC Audit — Case 41B58B75</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #0d0f12;
+    --panel: #15181a;
+    --panel-raised: #191d20;
+    --line: #262b2e;
+    --text: #dde1e3;
+    --muted: #7a8288;
+    --muted-dim: #727c83;
+    --mono: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+    --sans: 'IBM Plex Sans', -apple-system, 'Segoe UI', sans-serif;
+  }
+
+  .stamp {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--stamp-color);
+    border: 1.5px solid var(--stamp-color);
+    border-radius: 2px;
+    padding: 2px 7px;
+    transform: rotate(-1deg);
+    display: inline-block;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--ink);
+    color: var(--text);
+    font-family: var(--sans);
+    margin: 0;
+    padding: 0 0 100px;
+    font-size: 15px;
+    line-height: 1.5;
+  }
+  .sheet { max-width: 780px; margin: 0 auto; padding: 0 28px; }
+
+  .distribution-notice {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    color: #3f8f6e;
+    border: 1px solid #2c4b3e;
+    background: #14201b;
+    border-radius: 3px;
+    padding: 8px 12px;
+    margin: 20px 0 0;
+  }
+  .distribution-notice-warn {
+    color: #c75854;
+    border-color: #4b2c2c;
+    background: #201414;
+  }
+
+  /* ---- Cover ---- */
+  .cover {
+    border-bottom: 1px solid var(--line);
+    padding: 48px 0 28px;
+    margin-bottom: 8px;
+  }
+  .cover-eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .cover-title {
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: 26px;
+    letter-spacing: -0.01em;
+    margin: 6px 0 18px;
+  }
+  .cover-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px 32px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .cover-meta strong { color: var(--text); font-weight: 500; }
+  .scope-note {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted-dim);
+    margin-top: 10px;
+  }
+
+  /* ---- Docket ---- */
+  .docket { padding: 28px 0; border-bottom: 1px solid var(--line); }
+  .docket-heading {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 16px;
+  }
+  .tallies { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 24px; }
+  .tally {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 14px 10px;
+    text-align: center;
+  }
+  .tally-stamp {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: var(--stamp-color);
+    border: 1.5px solid var(--stamp-color);
+    border-radius: 2px;
+    padding: 2px 6px;
+    transform: rotate(-1.2deg);
+    margin-bottom: 8px;
+  }
+  .tally-count { font-family: var(--mono); font-size: 24px; font-weight: 600; }
+
+  .bar-row { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; font-size: 13px; }
+  .bar-label { flex: 0 0 160px; color: var(--muted); font-size: 12px; }
+  .bar-track { flex: 1; height: 6px; background: var(--panel); border-radius: 3px; overflow: hidden; }
+  .bar-fill { height: 100%; background: var(--muted-dim); border-radius: 3px; }
+  .bar-count { font-family: var(--mono); color: var(--muted); font-size: 12px; width: 20px; text-align: right; }
+  .docket-empty { color: var(--muted); font-size: 13px; font-style: italic; }
+
+  /* ---- Evidence log ---- */
+  .log-heading {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 28px 0 16px;
+  }
+  .entry {
+    display: grid;
+    grid-template-columns: 44px 1fr;
+    gap: 16px;
+    padding: 18px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .entry-number {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted-dim);
+    padding-top: 3px;
+  }
+  .entry-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  .entry-score { font-family: var(--mono); font-size: 12px; color: var(--text); font-weight: 500; }
+  .entry-category { font-size: 13px; color: var(--muted); }
+  .entry-rule { font-family: var(--mono); font-size: 11px; color: var(--muted-dim); margin-left: auto; }
+
+  .evidence { margin-bottom: 12px; }
+  .evidence summary, .evidence-static {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+  }
+  .evidence summary { cursor: pointer; list-style: none; }
+  .evidence summary::-webkit-details-marker { display: none; }
+  .evidence summary:focus-visible { outline: 2px solid #7a8288; outline-offset: 2px; }
+  .redacted-value {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--muted-dim);
+    letter-spacing: 1px;
+  }
+  .reveal-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-left: auto;
+  }
+  .evidence[open] summary { border-color: #3a4046; }
+  .revealed-value {
+    display: block;
+    margin-top: 6px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: #e2a878;
+    background: var(--panel-raised);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 8px 10px;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .revealed-value-static { margin-top: 0; width: 100%; }
+
+  .entry-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 20px; margin-bottom: 10px; }
+  .field { display: flex; gap: 8px; font-size: 12px; }
+  .field-label { color: var(--muted-dim); flex: 0 0 auto; min-width: 110px; }
+  .field-value { color: var(--muted); font-family: var(--mono); font-size: 11.5px; word-break: break-all; }
+
+  .entry-note {
+    font-size: 12.5px;
+    color: var(--muted);
+    font-style: italic;
+    margin: 8px 0 0;
+    padding-left: 10px;
+    border-left: 2px solid var(--line);
+  }
+
+  .clean-record {
+    font-family: var(--mono);
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--muted);
+    letter-spacing: 0.04em;
+  }
+
+  /* ---- Footer ---- */
+  .methodology {
+    padding: 28px 0 0;
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--muted-dim);
+  }
+  .methodology code { font-family: var(--mono); color: var(--muted); }
+
+  @media (max-width: 600px) {
+    .entry { grid-template-columns: 1fr; }
+    .entry-fields { grid-template-columns: 1fr; }
+    .tallies { grid-template-columns: repeat(2, 1fr); }
+    .bar-label { flex-basis: 110px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    * { transition: none !important; animation: none !important; }
+  }
+
+  @media print {
+    body { padding-bottom: 40px; }
+  }
+
+  @media print {
+    .entry { break-inside: avoid; }
+    .tallies { break-inside: avoid; }
+  }
+
+  @page {
+    size: A4;
+    margin: 16mm 14mm;
+    @bottom-center {
+      content: "Case 41B58B75 · Page " counter(page) " of " counter(pages);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 9px;
+      color: #7a8288;
+    }
+  }
+</style>
+</head>
+<body>
+  <div class="sheet">
+
+    <header class="cover">
+      <div class="cover-eyebrow">Chain of custody · self-audit</div>
+      <h1 class="cover-title">OPSEC Leak Scanner — Case 41B58B75</h1>
+      <div class="cover-meta">
+        <span>Generated <strong>2026-09-27 13:42 UTC</strong></span>
+        <span>Findings <strong>5</strong> (post-deduplication)</span>
+        <span>Formula <strong>severity × identity confidence × exposure</strong></span>
+      </div>
+      <div class="scope-note">Scan scope: 3 commits · mode: full history</div>
+      
+    </header>
+
+    <section class="docket">
+      <div class="docket-heading">Docket summary</div>
+      <div class="tallies"><div class="tally"><div class="tally-stamp" style="--stamp-color:#c75854">CRITICAL</div><div class="tally-count">00</div></div><div class="tally"><div class="tally-stamp" style="--stamp-color:#c07f3f">HIGH</div><div class="tally-count">02</div></div><div class="tally"><div class="tally-stamp" style="--stamp-color:#b8a13f">MEDIUM</div><div class="tally-count">00</div></div><div class="tally"><div class="tally-stamp" style="--stamp-color:#3f8f6e">LOW</div><div class="tally-count">03</div></div></div>
+      
+        <div class="bar-row">
+          <span class="bar-label">Infrastructure Exposure</span>
+          <div class="bar-track"><div class="bar-fill" style="width:80.0%"></div></div>
+          <span class="bar-count">4</span>
+        </div>
+        
+        <div class="bar-row">
+          <span class="bar-label">Credentials &amp; Keys</span>
+          <div class="bar-track"><div class="bar-fill" style="width:20.0%"></div></div>
+          <span class="bar-count">1</span>
+        </div>
+        
+    </section>
+
+    <section class="log">
+      <div class="log-heading">Evidence log — ranked by risk</div>
+      
+    <article class="entry" id="entry-001">
+      <div class="entry-number">001</div>
+      <div class="entry-body">
+        <div class="entry-head">
+          <span class="stamp" style="--stamp-color:#c07f3f">HIGH</span>
+          <span class="entry-score">RISK 8.44</span>
+          <span class="entry-category">Infrastructure Exposure</span>
+          <span class="entry-rule">internal_hostname</span>
+        </div>
+
+        
+        <details class="evidence">
+          <summary>
+            <code class="redacted-value">██████████████████</code>
+            <span class="reveal-label">reveal</span>
+          </summary>
+          <code class="revealed-value">yourcompany.internal</code>
+        </details>
+        
+
+        <div class="entry-fields">
+          <div class="field"><span class="field-label">Origin</span><span class="field-value">sample_demo_repo</span></div>
+          <div class="field"><span class="field-label">Context</span><span class="field-value">commit 0a92a05cf4 (author email) · observed 7×</span></div>
+          <div class="field"><span class="field-label">Identity confidence</span><span class="field-value">×1.5</span></div>
+          <div class="field"><span class="field-label">Exposure</span><span class="field-value">local only</span></div>
+          
+        </div>
+
+        <p class="entry-note">Direct match against known identity string 'yourcompany.internal'</p>
+      </div>
+    </article>
+    
+    <article class="entry" id="entry-002">
+      <div class="entry-number">002</div>
+      <div class="entry-body">
+        <div class="entry-head">
+          <span class="stamp" style="--stamp-color:#c07f3f">HIGH</span>
+          <span class="entry-score">RISK 6.75</span>
+          <span class="entry-category">Infrastructure Exposure</span>
+          <span class="entry-rule">staging_dev_url</span>
+        </div>
+
+        
+        <details class="evidence">
+          <summary>
+            <code class="redacted-value">██████████████████</code>
+            <span class="reveal-label">reveal</span>
+          </summary>
+          <code class="revealed-value">https://staging-auth.yourcompany.internal</code>
+        </details>
+        
+
+        <div class="entry-fields">
+          <div class="field"><span class="field-label">Origin</span><span class="field-value">sample_demo_repo</span></div>
+          <div class="field"><span class="field-label">Context</span><span class="field-value">commit 0a92a05cf4, file api.py, line 2</span></div>
+          <div class="field"><span class="field-label">Identity confidence</span><span class="field-value">×1.5</span></div>
+          <div class="field"><span class="field-label">Exposure</span><span class="field-value">local only</span></div>
+          
+        </div>
+
+        <p class="entry-note">Direct match against known identity string 'yourcompany.internal'</p>
+      </div>
+    </article>
+    
+    <article class="entry" id="entry-003">
+      <div class="entry-number">003</div>
+      <div class="entry-body">
+        <div class="entry-head">
+          <span class="stamp" style="--stamp-color:#3f8f6e">LOW</span>
+          <span class="entry-score">RISK 3.38</span>
+          <span class="entry-category">Credentials & Keys</span>
+          <span class="entry-rule">db_connection_string</span>
+        </div>
+
+        
+        <details class="evidence">
+          <summary>
+            <code class="redacted-value">██████████████████</code>
+            <span class="reveal-label">reveal</span>
+          </summary>
+          <code class="revealed-value">postgresql://dbadmin:SuperSecretKey2026!@postgres.internal.lan:5432/production</code>
+        </details>
+        
+
+        <div class="entry-fields">
+          <div class="field"><span class="field-label">Origin</span><span class="field-value">sample_demo_repo</span></div>
+          <div class="field"><span class="field-label">Context</span><span class="field-value">commit f74d705f90, file config.py, line 2 · observed 2×</span></div>
+          <div class="field"><span class="field-label">Identity confidence</span><span class="field-value">×0.5</span></div>
+          <div class="field"><span class="field-label">Exposure</span><span class="field-value">local only</span></div>
+          
+        </div>
+
+        <p class="entry-note">No correlation found against target identity profile (generic/low-confidence match)</p>
+      </div>
+    </article>
+    
+    <article class="entry" id="entry-004">
+      <div class="entry-number">004</div>
+      <div class="entry-body">
+        <div class="entry-head">
+          <span class="stamp" style="--stamp-color:#3f8f6e">LOW</span>
+          <span class="entry-score">RISK 2.81</span>
+          <span class="entry-category">Infrastructure Exposure</span>
+          <span class="entry-rule">internal_hostname</span>
+        </div>
+
+        
+        <details class="evidence">
+          <summary>
+            <code class="redacted-value">██████████████████</code>
+            <span class="reveal-label">reveal</span>
+          </summary>
+          <code class="revealed-value">postgres.internal</code>
+        </details>
+        
+
+        <div class="entry-fields">
+          <div class="field"><span class="field-label">Origin</span><span class="field-value">sample_demo_repo</span></div>
+          <div class="field"><span class="field-label">Context</span><span class="field-value">commit f74d705f90, file config.py, line 2 · observed 2×</span></div>
+          <div class="field"><span class="field-label">Identity confidence</span><span class="field-value">×0.5</span></div>
+          <div class="field"><span class="field-label">Exposure</span><span class="field-value">local only</span></div>
+          
+        </div>
+
+        <p class="entry-note">No correlation found against target identity profile (generic/low-confidence match)</p>
+      </div>
+    </article>
+    
+    <article class="entry" id="entry-005">
+      <div class="entry-number">005</div>
+      <div class="entry-body">
+        <div class="entry-head">
+          <span class="stamp" style="--stamp-color:#3f8f6e">LOW</span>
+          <span class="entry-score">RISK 2.44</span>
+          <span class="entry-category">Infrastructure Exposure</span>
+          <span class="entry-rule">internal_ip_range</span>
+        </div>
+
+        
+        <details class="evidence">
+          <summary>
+            <code class="redacted-value">██████████████████</code>
+            <span class="reveal-label">reveal</span>
+          </summary>
+          <code class="revealed-value">192.168.1.105</code>
+        </details>
+        
+
+        <div class="entry-fields">
+          <div class="field"><span class="field-label">Origin</span><span class="field-value">sample_demo_repo</span></div>
+          <div class="field"><span class="field-label">Context</span><span class="field-value">commit 0a92a05cf4, file api.py, line 3</span></div>
+          <div class="field"><span class="field-label">Identity confidence</span><span class="field-value">×0.5</span></div>
+          <div class="field"><span class="field-label">Exposure</span><span class="field-value">local only</span></div>
+          
+        </div>
+
+        <p class="entry-note">No correlation found against target identity profile (generic/low-confidence match)</p>
+      </div>
+    </article>
+    
+    </section>
+
+    <footer class="methodology">
+      <p><code>risk_score = base_severity × identity_confidence × exposure_weight</code>, clamped to 10.0.
+      Identity confidence reflects correlation against the target profile (direct match, domain match, GPS proximity,
+      or generic/uncorrelated). Exposure reflects whether a finding sits in current history, an archived/dangling
+      commit, or is confirmed public via <code>--public-repo</code>. Values behind "reveal" are shown only in this local file — nothing here is transmitted anywhere.</p>
+    </footer>
+
+  </div>
+</body>
+</html>
