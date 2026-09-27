@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OPSEC Scanner Platform</title>
+    <style>
+      :root {
+        --ink: #0d0f12;
+        --panel: #15181a;
+        --panel-raised: #191d20;
+        --line: #262b2e;
+        --text: #dde1e3;
+        --muted: #7a8288;
+        --muted-dim: #727c83;
+        --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+        --sans: "IBM Plex Sans", -apple-system, "Segoe UI", sans-serif;
+        --success: #3f8f6e;
+        --warning: #c07f3f;
+        --danger: #c75854;
+        --info: #7fa9d9;
+      }
+
+      * { box-sizing: border-box; }
+
+      html, body {
+        margin: 0;
+        min-height: 100%;
+        background: var(--ink);
+        color: var(--text);
+        font-family: var(--sans);
+      }
+
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        padding: 32px 18px;
+      }
+
+      .shell {
+        width: min(880px, 100%);
+        background: linear-gradient(180deg, rgba(21, 24, 26, 0.98), rgba(13, 15, 18, 0.98));
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
+        overflow: hidden;
+      }
+
+      .brandbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 18px 24px;
+        border-bottom: 1px solid var(--line);
+        background: rgba(25, 29, 32, 0.9);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 0.9rem;
+        letter-spacing: 0.08em;
+        font-family: var(--mono);
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .brand-mark {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, var(--info), var(--success));
+        box-shadow: 0 0 18px rgba(127, 169, 217, 0.6);
+      }
+
+      .layout {
+        display: grid;
+        grid-template-columns: 1.1fr 1fr;
+      }
+
+      .hero {
+        padding: 38px 28px 32px;
+        border-right: 1px solid var(--line);
+        background: rgba(21, 24, 26, 0.85);
+      }
+
+      .eyebrow {
+        color: var(--muted-dim);
+        font-size: 0.76rem;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        font-family: var(--mono);
+      }
+
+      h1 {
+        margin: 18px 0 12px;
+        font-size: clamp(2rem, 2.6vw, 3rem);
+        line-height: 1.05;
+        font-weight: 600;
+      }
+
+      .lede {
+        margin: 0 0 24px;
+        color: var(--muted);
+        line-height: 1.7;
+        max-width: 42ch;
+      }
+
+      .meta-list {
+        display: grid;
+        gap: 12px;
+        padding: 0;
+        margin: 0;
+        list-style: none;
+      }
+
+      .meta-list li {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--text);
+        padding: 10px 12px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: rgba(25, 29, 32, 0.7);
+      }
+
+      .meta-list strong {
+        color: var(--muted-dim);
+        font-family: var(--mono);
+        font-size: 0.74rem;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+      }
+
+      .panel {
+        padding: 30px 28px 26px;
+        background: var(--panel);
+      }
+
+      .tabs {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 20px;
+      }
+
+      .tab-button {
+        border: 1px solid var(--line);
+        background: var(--panel-raised);
+        color: var(--muted);
+        padding: 10px 14px;
+        border-radius: 10px;
+        font: inherit;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+
+      .tab-button.active {
+        color: var(--text);
+        border-color: rgba(127, 169, 217, 0.6);
+        box-shadow: inset 0 0 0 1px rgba(127, 169, 217, 0.28);
+      }
+
+      .panel h2 {
+        margin: 0 0 8px;
+        font-size: 1.55rem;
+      }
+
+      .subtext {
+        color: var(--muted);
+        margin-bottom: 22px;
+      }
+
+      form {
+        display: grid;
+        gap: 14px;
+      }
+
+      .field {
+        display: grid;
+        gap: 8px;
+      }
+
+      label {
+        color: var(--muted-dim);
+        font-size: 0.78rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        font-family: var(--mono);
+      }
+
+      input {
+        width: 100%;
+        padding: 12px 14px;
+        border-radius: 10px;
+        border: 1px solid var(--line);
+        background: rgba(13, 15, 18, 0.7);
+        color: var(--text);
+        font: inherit;
+      }
+
+      input:focus {
+        outline: 2px solid rgba(127, 169, 217, 0.5);
+        outline-offset: 1px;
+      }
+
+      .actions {
+        display: grid;
+        gap: 12px;
+      }
+
+      .primary {
+        border: 1px solid rgba(127, 169, 217, 0.8);
+        background: rgba(127, 169, 217, 0.12);
+        color: var(--text);
+        border-radius: 10px;
+        padding: 12px 14px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      .secondary {
+        border: 1px solid var(--line);
+        background: transparent;
+        color: var(--text);
+        border-radius: 10px;
+        padding: 10px 12px;
+        font: inherit;
+        cursor: pointer;
+      }
+
+      .muted-link {
+        color: var(--muted-dim);
+        text-decoration: none;
+      }
+
+      .muted-link:hover { text-decoration: underline; }
+
+      .error-box,
+      .success-box {
+        display: none;
+        width: 100%;
+        border-radius: 10px;
+        padding: 12px 13px;
+        font-size: 0.95rem;
+        line-height: 1.5;
+        border: 1px solid transparent;
+      }
+
+      .error-box {
+        color: #ffd3d0;
+        background: rgba(199, 88, 84, 0.12);
+        border-color: rgba(199, 88, 84, 0.38);
+      }
+
+      .success-box {
+        color: #d5fbe1;
+        background: rgba(63, 143, 110, 0.12);
+        border-color: rgba(63, 143, 110, 0.5);
+      }
+
+      .providers {
+        margin-top: 20px;
+        display: grid;
+        gap: 10px;
+      }
+
+      .provider-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        padding: 12px 14px;
+        border-radius: 10px;
+        border: 1px solid var(--line);
+        background: var(--panel-raised);
+        color: var(--text);
+        text-decoration: none;
+        font-weight: 600;
+      }
+
+      .provider-button:hover { border-color: rgba(127, 169, 217, 0.5); }
+
+      .divider {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        color: var(--muted-dim);
+        font-size: 0.8rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        font-family: var(--mono);
+        margin-top: 18px;
+      }
+
+      .divider::before,
+      .divider::after {
+        content: "";
+        height: 1px;
+        background: var(--line);
+        flex: 1;
+      }
+
+      .dashboard {
+        display: none;
+      }
+
+      .dashboard.visible { display: block; }
+
+      .cards {
+        display: grid;
+        gap: 16px;
+      }
+
+      .card {
+        background: rgba(25, 29, 32, 0.72);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 18px 18px 16px;
+      }
+
+      .dashboard-grid {
+        display: grid;
+        grid-template-columns: 1.1fr 1.3fr;
+        gap: 16px;
+      }
+
+      .user-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: center;
+      }
+
+      .pill {
+        display: inline-block;
+        border: 1px solid rgba(127, 169, 217, 0.6);
+        background: rgba(127, 169, 217, 0.12);
+        color: var(--text);
+        border-radius: 999px;
+        padding: 6px 10px;
+        font-size: 0.75rem;
+        font-family: var(--mono);
+      }
+
+      .activity-list {
+        list-style: none;
+        margin: 14px 0 0;
+        padding: 0;
+        display: grid;
+        gap: 10px;
+      }
+
+      .activity-item {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 10px 12px;
+        background: rgba(13, 15, 18, 0.5);
+      }
+
+      .activity-item small {
+        color: var(--muted-dim);
+        display: block;
+        margin-top: 5px;
+        font-family: var(--mono);
+      }
+
+      .actions-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+      }
+
+      @media (max-width: 720px) {
+        .layout,
+        .dashboard-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .hero {
+          border-right: none;
+          border-bottom: 1px solid var(--line);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <div class="brandbar">
+        <div class="brand">
+          <span class="brand-mark"></span>
+          <span>OPSEC Scanner Platform</span>
+        </div>
+      </div>
+
+      <div class="layout" id="authPage">
+        <section class="hero">
+          <div class="eyebrow">Security operations</div>
+          <h1>Track the signals that matter.</h1>
+          <p class="lede">
+            Review recent account activity, verify organization membership, and keep your security posture aligned with the scanner's findings.
+          </p>
+
+          <ul class="meta-list">
+            <li><strong>Auth</strong> <span>Local accounts + SSO-ready</span></li>
+            <li><strong>Audit</strong> <span>Activity log for every sign-in and action</span></li>
+            <li><strong>Ops</strong> <span>Run scans and report results back to the platform</span></li>
+          </ul>
+        </section>
+
+        <section class="panel">
+          <div class="tabs">
+            <button class="tab-button active" id="loginTab" type="button">Login</button>
+            <button class="tab-button" id="registerTab" type="button">Register</button>
+          </div>
+
+          <h2 id="formHeading">Sign in</h2>
+          <div class="subtext" id="formSubtext">Use your organization credentials.</div>
+
+          <div id="authError" class="error-box" aria-live="polite"></div>
+          <div id="authSuccess" class="success-box" aria-live="polite"></div>
+
+          <form id="authForm">
+            <div class="field" id="orgNameWrap" style="display: none;">
+              <label for="orgName">Organization</label>
+              <input id="orgName" name="org_name" type="text" placeholder="My Org" />
+            </div>
+
+            <div class="field">
+              <label for="email">Email</label>
+              <input id="email" name="email" type="email" autocomplete="email" placeholder="you@example.com" required />
+            </div>
+
+            <div class="field">
+              <label for="password">Password</label>
+              <input id="password" name="password" type="password" autocomplete="current-password" placeholder="••••••••" required />
+            </div>
+
+            <div class="actions">
+              <button class="primary" type="submit" id="submitButton">Sign in</button>
+            </div>
+          </form>
+
+          <div class="divider">or continue with</div>
+          <div id="providerButtons" class="providers" aria-live="polite"></div>
+        </section>
+      </div>
+
+      <div class="panel dashboard" id="dashboardPage">
+        <div class="actions-row">
+          <div>
+            <div class="eyebrow">Dashboard</div>
+            <h2 style="margin: 8px 0 0;">Account overview</h2>
+          </div>
+          <button class="secondary" id="logoutButton" type="button">Logout</button>
+        </div>
+
+        <div class="cards dashboard-grid" style="margin-top: 18px;">
+          <section class="card">
+            <div class="eyebrow">Current user</div>
+            <div id="userCard" style="margin-top: 14px; line-height: 1.7;"></div>
+          </section>
+
+          <section class="card">
+            <div class="eyebrow">Recent activity</div>
+            <ul class="activity-list" id="activityList"></ul>
+          </section>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const authError = document.getElementById('authError');
+      const authSuccess = document.getElementById('authSuccess');
+      const loginTab = document.getElementById('loginTab');
+      const registerTab = document.getElementById('registerTab');
+      const formHeading = document.getElementById('formHeading');
+      const formSubtext = document.getElementById('formSubtext');
+      const orgNameWrap = document.getElementById('orgNameWrap');
+      const submitButton = document.getElementById('submitButton');
+      const authForm = document.getElementById('authForm');
+      const providerButtons = document.getElementById('providerButtons');
+      const authPage = document.getElementById('authPage');
+      const dashboardPage = document.getElementById('dashboardPage');
+
+      let mode = 'login';
+
+      function showMessage(type, message) {
+        const box = type === 'error' ? authError : authSuccess;
+        const other = type === 'error' ? authSuccess : authError;
+        box.textContent = message;
+        box.style.display = 'block';
+        other.style.display = 'none';
+      }
+
+      function clearMessages() {
+        authError.style.display = 'none';
+        authSuccess.style.display = 'none';
+        authError.textContent = '';
+        authSuccess.textContent = '';
+      }
+
+      function setMode(nextMode) {
+        mode = nextMode;
+        clearMessages();
+
+        const isRegister = nextMode === 'register';
+        orgNameWrap.style.display = isRegister ? 'grid' : 'none';
+        formHeading.textContent = isRegister ? 'Create an account' : 'Sign in';
+        formSubtext.textContent = isRegister
+          ? 'Create a user for your organization. The first user becomes the org admin.'
+          : 'Use your organization credentials.';
+        submitButton.textContent = isRegister ? 'Create account' : 'Sign in';
+        loginTab.classList.toggle('active', !isRegister);
+        registerTab.classList.toggle('active', isRegister);
+        document.getElementById('orgName').required = isRegister;
+      }
+
+      async function fetchJson(url, options = {}) {
+        const response = await fetch(url, {
+          credentials: 'same-origin',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(options.headers || {})
+          },
+          ...options,
+        });
+
+        const body = response.headers.get('content-type')?.includes('application/json') ? await response.json() : null;
+        if (!response.ok) {
+          const detail = body && body.detail ? body.detail : 'Request failed.';
+          throw new Error(detail);
+        }
+        return body;
+      }
+
+      function renderProviders(configured) {
+        providerButtons.innerHTML = '';
+        if (!configured || !configured.length) {
+          providerButtons.innerHTML = '<div class="subtext">No SSO providers are configured for this deployment.</div>';
+          return;
+        }
+
+        const labels = {
+          google: 'Google',
+          github: 'GitHub',
+          microsoft: 'Microsoft',
+          apple: 'Apple'
+        };
+
+        configured.forEach((provider) => {
+          const link = document.createElement('a');
+          link.className = 'provider-button';
+          link.href = `/auth/oauth/${provider}/login`;
+          link.textContent = `Continue with ${labels[provider] || provider}`;
+          providerButtons.appendChild(link);
+        });
+      }
+
+      async function loadHealth() {
+        try {
+          const health = await fetch('/health', { credentials: 'same-origin' });
+          if (!health.ok) return;
+          const data = await health.json();
+          const providers = Array.isArray(data.sso_providers_configured) ? data.sso_providers_configured : [];
+          renderProviders(providers);
+        } catch (_) {
+          renderProviders([]);
+        }
+      }
+
+      authForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        clearMessages();
+
+        const payload = {
+          email: document.getElementById('email').value.trim(),
+          password: document.getElementById('password').value,
+        };
+
+        if (mode === 'register') {
+          payload.org_name = document.getElementById('orgName').value.trim();
+          payload.display_name = payload.email.split('@')[0];
+        }
+
+        try {
+          const endpoint = mode === 'register' ? '/auth/register' : '/auth/login';
+          const result = await fetchJson(endpoint, {
+            method: 'POST',
+            body: JSON.stringify(payload)
+          });
+
+          if (mode === 'register') {
+            showMessage('success', 'Account created successfully. You can now sign in with your new credentials.');
+            setMode('login');
+            authForm.reset();
+            return;
+          }
+
+          window.location.href = '/dashboard';
+          return result;
+        } catch (error) {
+          const detail = error.message || 'Something went wrong.';
+
+          if (mode === 'login') {
+            if (detail.includes('Too many failed login attempts')) {
+              showMessage('error', 'Too many failed attempts. Please wait a few minutes before trying again.');
+              return;
+            }
+            if (detail.includes('Invalid email or password')) {
+              showMessage('error', 'The email or password is incorrect. Please check your credentials and try again.');
+              return;
+            }
+          }
+
+          if (mode === 'register') {
+            if (detail.includes('already exists')) {
+              showMessage('error', 'That email is already registered. Try logging in instead or use a different address.');
+              return;
+            }
+            if (detail.includes('Authentication required')) {
+              showMessage('error', 'This organization already exists. Please log in first as an admin of that organization before adding a user.');
+              return;
+            }
+            if (detail.includes('Only an admin')) {
+              showMessage('error', 'You are signed in, but you are not an admin of this organization. Only an org admin can add new users.');
+              return;
+            }
+          }
+
+          showMessage('error', detail);
+        }
+      });
+
+      document.getElementById('logoutButton').addEventListener('click', async () => {
+        try {
+          await fetch('/auth/logout', {
+            method: 'POST',
+            credentials: 'same-origin'
+          });
+          window.location.href = '/login';
+        } catch (_) {
+          window.location.href = '/login';
+        }
+      });
+
+      loginTab.addEventListener('click', () => setMode('login'));
+      registerTab.addEventListener('click', () => setMode('register'));
+
+      async function loadDashboard() {
+        try {
+          const user = await fetch('/auth/me', { credentials: 'same-origin' });
+          if (!user.ok) {
+            window.location.href = '/login';
+            return;
+          }
+
+          const currentUser = await user.json();
+          const activityResponse = await fetch('/activity/me?limit=10', { credentials: 'same-origin' });
+          const activity = activityResponse.ok ? await activityResponse.json() : [];
+
+          const container = document.getElementById('userCard');
+          container.innerHTML = `
+            <div><strong>Email:</strong> ${escapeHtml(currentUser.email)}</div>
+            <div><strong>Name:</strong> ${escapeHtml(currentUser.display_name || 'Not set')}</div>
+            <div><strong>Organization:</strong> ${escapeHtml(currentUser.org_id || 'Not assigned')}</div>
+            <div><strong>Auth:</strong> ${escapeHtml(currentUser.auth_provider)}</div>
+            <div><strong>Admin:</strong> ${escapeHtml(currentUser.is_org_admin ? 'Yes' : 'No')}</div>
+          `;
+
+          const list = document.getElementById('activityList');
+          list.innerHTML = '';
+          if (!activity.length) {
+            list.innerHTML = '<li class="activity-item">No recent activity yet.</li>';
+            return;
+          }
+
+          activity.forEach((entry) => {
+            const item = document.createElement('li');
+            item.className = 'activity-item';
+            item.innerHTML = `
+              <strong>${escapeHtml(entry.event_type)}</strong>
+              <small>${escapeHtml(entry.timestamp || '')}</small>
+              ${entry.detail ? `<div style="color: var(--muted); margin-top: 6px;">${escapeHtml(entry.detail)}</div>` : ''}
+            `;
+            list.appendChild(item);
+          });
+        } catch (_) {
+          window.location.href = '/login';
+        }
+      }
+
+      function escapeHtml(value) {
+        return String(value)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/\"/g, '&quot;')
+          .replace(/'/g, '&#039;');
+      }
+
+      function initialize() {
+        const path = window.location.pathname;
+        if (path === '/dashboard') {
+          authPage.style.display = 'none';
+          dashboardPage.classList.add('visible');
+          loadDashboard();
+          return;
+        }
+
+        authPage.style.display = 'grid';
+        dashboardPage.classList.remove('visible');
+        setMode('login');
+        loadHealth();
+      }
+
+      initialize();
+    </script>
+  </body>
+</html>
