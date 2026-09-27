@@ -1,0 +1,11 @@
+{
+  "name": "opsec-scanner-webui",
+  "private": true,
+  "description": "Standalone client-side companion UI for opsec-scan JSON exports, plus its test suite.",
+  "scripts": {
+    "test": "node core.test.js && node dom.test.js"
+  },
+  "devDependencies": {
+    "jsdom": "^25.0.0"
+  }
+}
