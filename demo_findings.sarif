@@ -1,0 +1,170 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "opsec-leak-scanner",
+          "informationUri": "https://github.com/Keshav-gehlot/opsec-scanner",
+          "version": "0.3.0",
+          "rules": [
+            {
+              "id": "internal_hostname",
+              "shortDescription": {
+                "text": "OPSEC finding: internal hostname"
+              },
+              "properties": {
+                "category": "infrastructure"
+              }
+            },
+            {
+              "id": "staging_dev_url",
+              "shortDescription": {
+                "text": "OPSEC finding: staging dev url"
+              },
+              "properties": {
+                "category": "infrastructure"
+              }
+            },
+            {
+              "id": "db_connection_string",
+              "shortDescription": {
+                "text": "OPSEC finding: db connection string"
+              },
+              "properties": {
+                "category": "credentials"
+              }
+            },
+            {
+              "id": "internal_ip_range",
+              "shortDescription": {
+                "text": "OPSEC finding: internal ip range"
+              },
+              "properties": {
+                "category": "infrastructure"
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "internal_hostname",
+          "level": "error",
+          "message": {
+            "text": "HIGH (8.44): \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 \u2014 Direct match against known identity string 'yourcompany.internal'"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample_demo_repo"
+                }
+              }
+            }
+          ],
+          "properties": {
+            "risk_score": 8.44,
+            "category": "infrastructure",
+            "exposure_level": "local_only",
+            "identity_confidence": 1.5,
+            "occurrence_count": 7
+          }
+        },
+        {
+          "ruleId": "staging_dev_url",
+          "level": "error",
+          "message": {
+            "text": "HIGH (6.75): \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 \u2014 Direct match against known identity string 'yourcompany.internal'"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample_demo_repo"
+                }
+              }
+            }
+          ],
+          "properties": {
+            "risk_score": 6.75,
+            "category": "infrastructure",
+            "exposure_level": "local_only",
+            "identity_confidence": 1.5,
+            "occurrence_count": 1
+          }
+        },
+        {
+          "ruleId": "db_connection_string",
+          "level": "note",
+          "message": {
+            "text": "LOW (3.38): \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 \u2014 No correlation found against target identity profile (generic/low-confidence match)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample_demo_repo"
+                }
+              }
+            }
+          ],
+          "properties": {
+            "risk_score": 3.38,
+            "category": "credentials",
+            "exposure_level": "local_only",
+            "identity_confidence": 0.5,
+            "occurrence_count": 2
+          }
+        },
+        {
+          "ruleId": "internal_hostname",
+          "level": "note",
+          "message": {
+            "text": "LOW (2.81): \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 \u2014 No correlation found against target identity profile (generic/low-confidence match)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample_demo_repo"
+                }
+              }
+            }
+          ],
+          "properties": {
+            "risk_score": 2.81,
+            "category": "infrastructure",
+            "exposure_level": "local_only",
+            "identity_confidence": 0.5,
+            "occurrence_count": 2
+          }
+        },
+        {
+          "ruleId": "internal_ip_range",
+          "level": "note",
+          "message": {
+            "text": "LOW (2.44): \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588 \u2014 No correlation found against target identity profile (generic/low-confidence match)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample_demo_repo"
+                }
+              }
+            }
+          ],
+          "properties": {
+            "risk_score": 2.44,
+            "category": "infrastructure",
+            "exposure_level": "local_only",
+            "identity_confidence": 0.5,
+            "occurrence_count": 1
+          }
+        }
+      ]
+    }
+  ]
+}
