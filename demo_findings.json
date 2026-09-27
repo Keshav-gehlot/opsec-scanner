@@ -1,0 +1,123 @@
+{
+  "generated_at": "2026-09-27T13:42:46.806227+00:00",
+  "redacted": true,
+  "total_findings": 5,
+  "findings": [
+    {
+      "risk_score": 8.44,
+      "risk_label": "HIGH",
+      "rule_id": "internal_hostname",
+      "category": "infrastructure",
+      "matched_text": "\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588",
+      "matched_text_length": 20,
+      "base_severity": 7.5,
+      "entropy_score": null,
+      "identity_confidence": 1.5,
+      "identity_reason": "Direct match against known identity string 'yourcompany.internal'",
+      "exposure_level": "local_only",
+      "source_type": "git_commit_meta",
+      "origin": "sample_demo_repo",
+      "context": "commit 0a92a05cf4 (author email)",
+      "occurrence_count": 7,
+      "metadata": {
+        "role": "author",
+        "name": "Alex Developer",
+        "commit_sha": "0a92a05cf49684a74723c0a40226c99906de4ca9",
+        "authored_date": "2026-09-27T18:50:30+05:30",
+        "occurrence_count": 7
+      }
+    },
+    {
+      "risk_score": 6.75,
+      "risk_label": "HIGH",
+      "rule_id": "staging_dev_url",
+      "category": "infrastructure",
+      "matched_text": "\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588",
+      "matched_text_length": 41,
+      "base_severity": 6.0,
+      "entropy_score": null,
+      "identity_confidence": 1.5,
+      "identity_reason": "Direct match against known identity string 'yourcompany.internal'",
+      "exposure_level": "local_only",
+      "source_type": "git_patch",
+      "origin": "sample_demo_repo",
+      "context": "commit 0a92a05cf4, file api.py, line 2",
+      "occurrence_count": 1,
+      "metadata": {
+        "commit_sha": "0a92a05cf49684a74723c0a40226c99906de4ca9",
+        "change_type": "added",
+        "file": "api.py",
+        "occurrence_count": 1
+      }
+    },
+    {
+      "risk_score": 3.38,
+      "risk_label": "LOW",
+      "rule_id": "db_connection_string",
+      "category": "credentials",
+      "matched_text": "\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588",
+      "matched_text_length": 78,
+      "base_severity": 9.0,
+      "entropy_score": null,
+      "identity_confidence": 0.5,
+      "identity_reason": "No correlation found against target identity profile (generic/low-confidence match)",
+      "exposure_level": "local_only",
+      "source_type": "git_patch",
+      "origin": "sample_demo_repo",
+      "context": "commit f74d705f90, file config.py, line 2",
+      "occurrence_count": 2,
+      "metadata": {
+        "commit_sha": "f74d705f9095e55ffc6a71111e212029d00a0083",
+        "change_type": "removed",
+        "file": "config.py",
+        "occurrence_count": 2
+      }
+    },
+    {
+      "risk_score": 2.81,
+      "risk_label": "LOW",
+      "rule_id": "internal_hostname",
+      "category": "infrastructure",
+      "matched_text": "\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588",
+      "matched_text_length": 17,
+      "base_severity": 7.5,
+      "entropy_score": null,
+      "identity_confidence": 0.5,
+      "identity_reason": "No correlation found against target identity profile (generic/low-confidence match)",
+      "exposure_level": "local_only",
+      "source_type": "git_patch",
+      "origin": "sample_demo_repo",
+      "context": "commit f74d705f90, file config.py, line 2",
+      "occurrence_count": 2,
+      "metadata": {
+        "commit_sha": "f74d705f9095e55ffc6a71111e212029d00a0083",
+        "change_type": "removed",
+        "file": "config.py",
+        "occurrence_count": 2
+      }
+    },
+    {
+      "risk_score": 2.44,
+      "risk_label": "LOW",
+      "rule_id": "internal_ip_range",
+      "category": "infrastructure",
+      "matched_text": "\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588",
+      "matched_text_length": 13,
+      "base_severity": 6.5,
+      "entropy_score": null,
+      "identity_confidence": 0.5,
+      "identity_reason": "No correlation found against target identity profile (generic/low-confidence match)",
+      "exposure_level": "local_only",
+      "source_type": "git_patch",
+      "origin": "sample_demo_repo",
+      "context": "commit 0a92a05cf4, file api.py, line 3",
+      "occurrence_count": 1,
+      "metadata": {
+        "commit_sha": "0a92a05cf49684a74723c0a40226c99906de4ca9",
+        "change_type": "added",
+        "file": "api.py",
+        "occurrence_count": 1
+      }
+    }
+  ]
+}
