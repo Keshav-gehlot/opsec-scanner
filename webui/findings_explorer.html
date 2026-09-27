@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OPSEC Findings Explorer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* Design tokens — kept identical to opsec_scanner/output/report_theme.py
+     so this UI and the CLI-generated reports read as one product, not two. */
+  :root {
+    --ink: #0d0f12;
+    --panel: #15181a;
+    --panel-raised: #191d20;
+    --line: #262b2e;
+    --text: #dde1e3;
+    --muted: #7a8288;
+    --muted-dim: #727c83; /* corrected for WCAG AA 4.5:1, see report_theme.py */
+    --mono: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+    --sans: 'IBM Plex Sans', -apple-system, 'Segoe UI', sans-serif;
+    --critical: #c75854;
+    --high: #c07f3f;
+    --medium: #b8a13f;
+    --low: #3f8f6e;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--ink);
+    color: var(--text);
+    font-family: var(--sans);
+    margin: 0;
+    padding: 0 0 80px;
+    font-size: 15px;
+    line-height: 1.5;
+  }
+  .sheet { max-width: 880px; margin: 0 auto; padding: 0 24px; }
+
+  /* ---- Header ---- */
+  header.cover {
+    border-bottom: 1px solid var(--line);
+    padding: 40px 0 24px;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 16px;
+  }
+  .cover-eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .cover-title {
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: 24px;
+    letter-spacing: -0.01em;
+    margin: 6px 0 0;
+  }
+  .case-meta {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 8px;
+  }
+  .case-meta strong { color: var(--text); font-weight: 500; }
+
+  button {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    border-radius: 4px;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    color: var(--text);
+    padding: 9px 16px;
+  }
+  button:hover { border-color: #3a4046; }
+  button:focus-visible { outline: 2px solid var(--muted); outline-offset: 2px; }
+  button.primary { border-color: var(--muted); }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  /* ---- Empty state (no case file loaded yet) ---- */
+  #empty-state {
+    text-align: center;
+    padding: 100px 20px;
+    border: 1px dashed var(--line);
+    border-radius: 6px;
+    margin: 32px 0;
+  }
+  #empty-state.dragover { border-color: var(--muted); background: var(--panel); }
+  .empty-icon { font-family: var(--mono); font-size: 32px; color: var(--muted-dim); margin-bottom: 16px; }
+  .empty-title { font-family: var(--mono); font-size: 15px; color: var(--text); margin-bottom: 8px; }
+  .empty-sub { font-size: 13px; color: var(--muted); max-width: 420px; margin: 0 auto 24px; }
+
+  /* ---- Error state ---- */
+  #error-banner {
+    display: none;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--critical);
+    border: 1px solid #4b2c2c;
+    background: #201414;
+    border-radius: 4px;
+    padding: 12px 14px;
+    margin: 20px 0;
+  }
+
+  /* ---- Docket summary ---- */
+  #docket { display: none; padding: 24px 0; border-bottom: 1px solid var(--line); }
+  .docket-heading {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--muted); margin-bottom: 14px;
+  }
+  .tallies { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 20px; }
+  .tally { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 12px 8px; text-align: center; }
+  .tally-count { font-family: var(--mono); font-size: 22px; font-weight: 600; margin-top: 6px; }
+  .bar-row { display: flex; align-items: center; gap: 12px; margin-bottom: 7px; font-size: 12.5px; }
+  .bar-label { flex: 0 0 150px; color: var(--muted); }
+  .bar-track { flex: 1; height: 6px; background: var(--panel); border-radius: 3px; overflow: hidden; }
+  .bar-fill { height: 100%; background: var(--muted-dim); border-radius: 3px; }
+  .bar-count { font-family: var(--mono); color: var(--muted); width: 20px; text-align: right; }
+
+  /* ---- Stamp component — same visual language as the CLI reports ---- */
+  .stamp {
+    font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+    border-radius: 2px; padding: 2px 7px; transform: rotate(-1deg); display: inline-block;
+  }
+  .stamp-CRITICAL { color: var(--critical); border: 1.5px solid var(--critical); }
+  .stamp-HIGH { color: var(--high); border: 1.5px solid var(--high); }
+  .stamp-MEDIUM { color: var(--medium); border: 1.5px solid var(--medium); }
+  .stamp-LOW { color: var(--low); border: 1.5px solid var(--low); }
+
+  /* ---- Toolbar ---- */
+  #toolbar { display: none; gap: 10px; flex-wrap: wrap; padding: 18px 0; align-items: center; }
+  #toolbar input[type="text"], #toolbar select {
+    font-family: var(--mono); font-size: 12.5px; background: var(--panel); color: var(--text);
+    border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px;
+  }
+  #toolbar input[type="text"] { flex: 1; min-width: 160px; }
+  #toolbar input:focus-visible, #toolbar select:focus-visible { outline: 2px solid var(--muted); outline-offset: 1px; }
+  #result-count { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-left: auto; white-space: nowrap; }
+
+  /* ---- Findings list ---- */
+  #findings-list { display: none; }
+  .finding {
+    display: grid; grid-template-columns: 40px 1fr; gap: 14px;
+    padding: 16px 0; border-bottom: 1px solid var(--line);
+  }
+  .finding-number { font-family: var(--mono); font-size: 12px; color: var(--muted-dim); padding-top: 3px; }
+  .finding-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 9px; }
+  .finding-score { font-family: var(--mono); font-size: 12px; font-weight: 500; }
+  .finding-category { font-size: 13px; color: var(--muted); }
+  .finding-rule { font-family: var(--mono); font-size: 11px; color: var(--muted-dim); margin-left: auto; }
+  .occurrence-badge { font-family: var(--mono); font-size: 11px; background: var(--panel); border: 1px solid var(--line); padding: 1px 6px; border-radius: 3px; color: var(--muted); }
+
+  .evidence-row {
+    display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 4px; margin-bottom: 10px;
+  }
+  .evidence-value { font-family: var(--mono); font-size: 12.5px; flex: 1; overflow-x: auto; white-space: nowrap; }
+  .evidence-value.redacted { color: var(--muted-dim); letter-spacing: 1px; }
+  .evidence-value.revealed { color: #e2a878; }
+  .reveal-btn { font-size: 10px; padding: 4px 10px; letter-spacing: 0.06em; }
+  .reveal-unavailable { font-family: var(--mono); font-size: 10.5px; color: var(--muted-dim); font-style: italic; white-space: nowrap; }
+
+  .finding-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 5px 20px; margin-bottom: 9px; }
+  .field { display: flex; gap: 8px; font-size: 12px; }
+  .field-label { color: var(--muted-dim); min-width: 110px; flex: 0 0 auto; }
+  .field-value { color: var(--muted); font-family: var(--mono); font-size: 11.5px; word-break: break-all; }
+  .finding-note { font-size: 12.5px; color: var(--muted); font-style: italic; margin: 6px 0 0; padding-left: 10px; border-left: 2px solid var(--line); }
+
+  #no-results { display: none; text-align: center; padding: 60px 20px; color: var(--muted); font-family: var(--mono); font-size: 13px; }
+
+  footer.trust {
+    padding: 28px 0 0; margin-top: 20px; font-size: 12px; color: var(--muted-dim);
+    display: flex; align-items: center; gap: 8px;
+  }
+
+  @media (max-width: 640px) {
+    .tallies { grid-template-columns: repeat(2, 1fr); }
+    .finding { grid-template-columns: 1fr; }
+    .finding-fields { grid-template-columns: 1fr; }
+    .bar-label { flex-basis: 110px; }
+    #toolbar { flex-direction: column; align-items: stretch; }
+    #result-count { margin-left: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    * { transition: none !important; animation: none !important; }
+  }
+</style>
+</head>
+<body>
+  <div class="sheet">
+    <header class="cover">
+      <div>
+        <div class="cover-eyebrow">Chain of custody · evidence locker</div>
+        <h1 class="cover-title">OPSEC Findings Explorer</h1>
+        <div class="case-meta" id="case-meta" style="display:none;"></div>
+      </div>
+      <div>
+        <button class="primary" id="load-btn" type="button">Load case file (.json)</button>
+        <input type="file" id="file-input" accept=".json,application/json" style="display:none;">
+      </div>
+    </header>
+
+    <div id="error-banner" role="alert"></div>
+
+    <div id="empty-state">
+      <div class="empty-icon">▤</div>
+      <div class="empty-title">No case file loaded</div>
+      <div class="empty-sub">
+        Drag a JSON export here, or click "Load case file" above. Generate one with:
+        <br><code style="color:var(--muted-dim)">opsec-scan --repo . --json-output findings.json</code>
+      </div>
+      <button class="primary" id="empty-load-btn" type="button">Load case file (.json)</button>
+    </div>
+
+    <section id="docket">
+      <div class="docket-heading">Docket summary</div>
+      <div class="tallies" id="tallies"></div>
+      <div id="category-bars"></div>
+    </section>
+
+    <div id="toolbar">
+      <input type="text" id="search-input" placeholder="Search rule, origin, context…" aria-label="Search findings">
+      <select id="category-filter" aria-label="Filter by category">
+        <option value="all">All categories</option>
+        <option value="credentials">Credentials & Keys</option>
+        <option value="infrastructure">Infrastructure Exposure</option>
+        <option value="personal">Personal Identity</option>
+        <option value="system">System Footprint</option>
+      </select>
+      <select id="risk-filter" aria-label="Filter by risk level">
+        <option value="all">All risk levels</option>
+        <option value="CRITICAL">Critical</option>
+        <option value="HIGH">High</option>
+        <option value="MEDIUM">Medium</option>
+        <option value="LOW">Low</option>
+      </select>
+      <select id="sort-select" aria-label="Sort findings">
+        <option value="risk_desc">Risk: high to low</option>
+        <option value="risk_asc">Risk: low to high</option>
+        <option value="occurrence">Most observed</option>
+        <option value="category">Category</option>
+      </select>
+      <span id="result-count"></span>
+    </div>
+
+    <div id="findings-list"></div>
+    <div id="no-results">No findings match these filters.</div>
+
+    <footer class="trust" id="trust-footer" style="display:none;">
+      <span>🔒</span>
+      <span>Everything above happens in your browser. This file never uploads your case data anywhere.</span>
+    </footer>
+  </div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---- Core logic (unit-tested under Node before being embedded here —
+  // see core.js / core.test.js in the project's build sources) ----
+
+  var STAMP_COLORS = { CRITICAL: "#c75854", HIGH: "#c07f3f", MEDIUM: "#b8a13f", LOW: "#3f8f6e" };
+  var CATEGORY_LABELS = {
+    credentials: "Credentials & Keys",
+    infrastructure: "Infrastructure Exposure",
+    personal: "Personal Identity",
+    system: "System Footprint",
+  };
+  var REDACTED_PLACEHOLDER = "\u2588".repeat(18);
+
+  function escapeHtml(value) {
+    return String(value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function parseExport(rawText) {
+    var data;
+    try {
+      data = JSON.parse(rawText);
+    } catch (e) {
+      return { ok: false, error: "That file isn't valid JSON. Make sure you're loading the file from --json-output, not report.html or .pdf." };
+    }
+    if (!data || typeof data !== "object") {
+      return { ok: false, error: "That file doesn't look like an opsec-scan export." };
+    }
+    if (!Array.isArray(data.findings)) {
+      return { ok: false, error: "This JSON file has no 'findings' array — it doesn't look like an opsec-scan export." };
+    }
+    return { ok: true, data: data };
+  }
+
+  function filterFindings(findings, filters) {
+    var search = (filters.search || "").trim().toLowerCase();
+    var category = filters.category;
+    var riskLevel = filters.riskLevel;
+
+    return findings.filter(function (f) {
+      if (category && category !== "all" && f.category !== category) return false;
+      if (riskLevel && riskLevel !== "all" && f.risk_label !== riskLevel) return false;
+      if (search) {
+        var haystack = [f.rule_id, f.category, f.origin, f.context, f.identity_reason]
+          .filter(Boolean).join(" ").toLowerCase();
+        if (haystack.indexOf(search) === -1) return false;
+      }
+      return true;
+    });
+  }
+
+  function sortFindings(findings, sortBy) {
+    var copy = findings.slice();
+    if (sortBy === "risk_asc") {
+      copy.sort(function (a, b) { return a.risk_score - b.risk_score; });
+    } else if (sortBy === "category") {
+      copy.sort(function (a, b) { return (a.category || "").localeCompare(b.category || ""); });
+    } else if (sortBy === "occurrence") {
+      copy.sort(function (a, b) { return (b.occurrence_count || 1) - (a.occurrence_count || 1); });
+    } else {
+      copy.sort(function (a, b) { return b.risk_score - a.risk_score; });
+    }
+    return copy;
+  }
+
+  function countByLabel(findings) {
+    var counts = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 };
+    findings.forEach(function (f) { if (counts[f.risk_label] !== undefined) counts[f.risk_label]++; });
+    return counts;
+  }
+
+  function countByCategory(findings) {
+    var counts = {};
+    findings.forEach(function (f) { counts[f.category] = (counts[f.category] || 0) + 1; });
+    return counts;
+  }
+
+  function isRevealable(exportWasRedacted, finding) {
+    return exportWasRedacted === false && finding.matched_text !== REDACTED_PLACEHOLDER;
+  }
+
+  // ---- UI state + rendering ----
+
+  var state = { data: null, filters: { search: "", category: "all", riskLevel: "all" }, sortBy: "risk_desc", revealed: {} };
+
+  var els = {
+    loadBtn: document.getElementById("load-btn"),
+    emptyLoadBtn: document.getElementById("empty-load-btn"),
+    fileInput: document.getElementById("file-input"),
+    emptyState: document.getElementById("empty-state"),
+    errorBanner: document.getElementById("error-banner"),
+    docket: document.getElementById("docket"),
+    tallies: document.getElementById("tallies"),
+    categoryBars: document.getElementById("category-bars"),
+    toolbar: document.getElementById("toolbar"),
+    searchInput: document.getElementById("search-input"),
+    categoryFilter: document.getElementById("category-filter"),
+    riskFilter: document.getElementById("risk-filter"),
+    sortSelect: document.getElementById("sort-select"),
+    resultCount: document.getElementById("result-count"),
+    findingsList: document.getElementById("findings-list"),
+    noResults: document.getElementById("no-results"),
+    caseMeta: document.getElementById("case-meta"),
+    trustFooter: document.getElementById("trust-footer"),
+  };
+
+  function showError(message) {
+    els.errorBanner.textContent = message;
+    els.errorBanner.style.display = "block";
+  }
+  function clearError() { els.errorBanner.style.display = "none"; }
+
+  function loadFile(file) {
+    if (!file) return;
+    clearError();
+    var reader = new FileReader();
+    reader.onload = function (e) {
+      var result = parseExport(e.target.result);
+      if (!result.ok) { showError(result.error); return; }
+      state.data = result.data;
+      state.revealed = {};
+      renderAll();
+    };
+    reader.onerror = function () {
+      showError("Couldn't read that file. Try loading it again.");
+    };
+    reader.readAsText(file);
+  }
+
+  function renderAll() {
+    var data = state.data;
+    if (!data) return;
+
+    els.emptyState.style.display = "none";
+    els.docket.style.display = "block";
+    els.toolbar.style.display = "flex";
+    els.findingsList.style.display = "block";
+    els.trustFooter.style.display = "flex";
+
+    var genDate = data.generated_at ? new Date(data.generated_at) : null;
+    var genLabel = genDate && !isNaN(genDate) ? genDate.toISOString().slice(0, 16).replace("T", " ") + " UTC" : "unknown time";
+    els.caseMeta.style.display = "block";
+    els.caseMeta.innerHTML = "Loaded " + escapeHtml(genLabel) + " · " + data.findings.length + " findings" +
+      (data.redacted ? " · <span title=\"Values were redacted at export time\">redacted export</span>" : " · full values present");
+
+    var counts = countByLabel(data.findings);
+    els.tallies.innerHTML = ["CRITICAL", "HIGH", "MEDIUM", "LOW"].map(function (label) {
+      return '<div class="tally"><span class="stamp stamp-' + label + '">' + label + '</span>' +
+        '<div class="tally-count">' + String(counts[label]).padStart(2, "0") + '</div></div>';
+    }).join("");
+
+    var catCounts = countByCategory(data.findings);
+    var total = data.findings.length || 1;
+    var catEntries = Object.keys(catCounts).sort(function (a, b) { return catCounts[b] - catCounts[a]; });
+    els.categoryBars.innerHTML = catEntries.map(function (cat) {
+      var pct = (catCounts[cat] / total) * 100;
+      var label = CATEGORY_LABELS[cat] || cat;
+      return '<div class="bar-row"><span class="bar-label">' + escapeHtml(label) + '</span>' +
+        '<div class="bar-track"><div class="bar-fill" style="width:' + pct.toFixed(1) + '%"></div></div>' +
+        '<span class="bar-count">' + catCounts[cat] + '</span></div>';
+    }).join("");
+
+    renderFindings();
+  }
+
+  function renderFindings() {
+    var data = state.data;
+    if (!data) return;
+
+    var filtered = filterFindings(data.findings, state.filters);
+    var sorted = sortFindings(filtered, state.sortBy);
+
+    els.resultCount.textContent = sorted.length + " of " + data.findings.length + " shown";
+
+    if (sorted.length === 0) {
+      els.findingsList.innerHTML = "";
+      els.noResults.style.display = "block";
+      return;
+    }
+    els.noResults.style.display = "none";
+
+    els.findingsList.innerHTML = sorted.map(function (f, i) {
+      var key = (f.rule_id || "") + "|" + (f.origin || "") + "|" + i;
+      var revealable = isRevealable(data.redacted, f);
+      var isRevealed = revealable && state.revealed[key];
+
+      var evidenceHtml;
+      if (isRevealed) {
+        evidenceHtml = '<div class="evidence-row"><span class="evidence-value revealed">' + escapeHtml(f.matched_text) + '</span>' +
+          '<button class="reveal-btn" data-key="' + escapeHtml(key) + '" data-action="hide">hide</button></div>';
+      } else if (revealable) {
+        evidenceHtml = '<div class="evidence-row"><span class="evidence-value redacted">' + REDACTED_PLACEHOLDER + '</span>' +
+          '<button class="reveal-btn" data-key="' + escapeHtml(key) + '" data-action="reveal">reveal</button></div>';
+      } else {
+        evidenceHtml = '<div class="evidence-row"><span class="evidence-value redacted">' + REDACTED_PLACEHOLDER + '</span>' +
+          '<span class="reveal-unavailable">redacted at export time — re-run with --reveal-in-json for a personal copy</span></div>';
+      }
+
+      var occurrenceBadge = (f.occurrence_count && f.occurrence_count > 1)
+        ? '<span class="occurrence-badge">\u00d7' + f.occurrence_count + '</span>' : "";
+      var entropyField = (f.entropy_score !== null && f.entropy_score !== undefined)
+        ? '<div class="field"><span class="field-label">Entropy</span><span class="field-value">' + f.entropy_score.toFixed(2) + ' bits/char</span></div>' : "";
+
+      return '<article class="finding">' +
+        '<div class="finding-number">' + String(i + 1).padStart(3, "0") + '</div>' +
+        '<div>' +
+          '<div class="finding-head">' +
+            '<span class="stamp stamp-' + f.risk_label + '">' + f.risk_label + '</span>' +
+            '<span class="finding-score">RISK ' + f.risk_score.toFixed(2) + '</span>' +
+            '<span class="finding-category">' + escapeHtml(CATEGORY_LABELS[f.category] || f.category) + '</span>' +
+            occurrenceBadge +
+            '<span class="finding-rule">' + escapeHtml(f.rule_id) + '</span>' +
+          '</div>' +
+          evidenceHtml +
+          '<div class="finding-fields">' +
+            '<div class="field"><span class="field-label">Origin</span><span class="field-value">' + escapeHtml(f.origin || "unknown") + '</span></div>' +
+            '<div class="field"><span class="field-label">Context</span><span class="field-value">' + escapeHtml(f.context || "") + '</span></div>' +
+            '<div class="field"><span class="field-label">Identity confidence</span><span class="field-value">\u00d7' + f.identity_confidence + '</span></div>' +
+            '<div class="field"><span class="field-label">Exposure</span><span class="field-value">' + escapeHtml((f.exposure_level || "").replace(/_/g, " ")) + '</span></div>' +
+            entropyField +
+          '</div>' +
+          '<p class="finding-note">' + escapeHtml(f.identity_reason || "") + '</p>' +
+        '</div>' +
+      '</article>';
+    }).join("");
+  }
+
+  // ---- Event wiring ----
+
+  els.loadBtn.addEventListener("click", function () { els.fileInput.click(); });
+  els.emptyLoadBtn.addEventListener("click", function () { els.fileInput.click(); });
+  els.fileInput.addEventListener("change", function (e) { loadFile(e.target.files[0]); });
+
+  els.emptyState.addEventListener("dragover", function (e) { e.preventDefault(); els.emptyState.classList.add("dragover"); });
+  els.emptyState.addEventListener("dragleave", function () { els.emptyState.classList.remove("dragover"); });
+  els.emptyState.addEventListener("drop", function (e) {
+    e.preventDefault();
+    els.emptyState.classList.remove("dragover");
+    if (e.dataTransfer.files.length) loadFile(e.dataTransfer.files[0]);
+  });
+
+  els.searchInput.addEventListener("input", function (e) { state.filters.search = e.target.value; renderFindings(); });
+  els.categoryFilter.addEventListener("change", function (e) { state.filters.category = e.target.value; renderFindings(); });
+  els.riskFilter.addEventListener("change", function (e) { state.filters.riskLevel = e.target.value; renderFindings(); });
+  els.sortSelect.addEventListener("change", function (e) { state.sortBy = e.target.value; renderFindings(); });
+
+  els.findingsList.addEventListener("click", function (e) {
+    var btn = e.target.closest(".reveal-btn");
+    if (!btn) return;
+    var key = btn.getAttribute("data-key");
+    var action = btn.getAttribute("data-action");
+    state.revealed[key] = action === "reveal";
+    renderFindings();
+  });
+
+  if (window.location.protocol.startsWith("http")) {
+    var params = new URLSearchParams(window.location.search);
+    var targetFile = params.get("file") || "../demo_findings.json";
+    fetch(targetFile)
+      .then(function (res) { if (res.ok) return res.text(); })
+      .then(function (text) {
+        if (text) {
+          var result = parseExport(text);
+          if (result.ok) {
+            state.data = result.data;
+            state.revealed = {};
+            renderAll();
+          }
+        }
+      })
+      .catch(function () {});
+  }
+})();
+</script>
+</body>
+</html>
