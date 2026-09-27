@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libimage-exiftool-perl tesseract-ocr
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run test suite
+        run: pytest tests/ -v
+
+      - name: Verify the installed console command actually works
+        # Regression guard for the exact packaging bug found earlier in
+        # this project's history: `pip install -e .` succeeding is not
+        # the same as the `opsec-scan` console command actually running.
+        # Run it from outside the repo directory, not just `python -m`.
+        run: |
+          cd /tmp
+          opsec-scan --help
+
+  webui-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install and test webui
+        working-directory: webui
+        run: |
+          npm install
+          npm test
+
+  platform-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install platform dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[platform,dev]"
+
+      - name: Run platform test suite
+        env:
+          PLATFORM_JWT_SECRET: "ci-test-secret-not-for-production"
+          PLATFORM_COOKIE_SECURE: "false"
+        run: pytest tests_platform/ -v
