@@ -11,11 +11,3 @@ opsec_report.html
 opsec_report.json
 opsec_platform/.env
 opsec_platform/platform.db
-
-# Local/generated demo state
-sample_demo_repo/.git/
-*.sqlite
-*.sqlite3
-.env
-.env.*
-!.env.example
