@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OPSEC Scanner & Operations Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #0d0f12;
+    --panel: #15181a;
+    --panel-raised: #191d20;
+    --line: #262b2e;
+    --text: #dde1e3;
+    --muted: #7a8288;
+    --muted-dim: #727c83;
+    --mono: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+    --sans: 'IBM Plex Sans', -apple-system, 'Segoe UI', sans-serif;
+    --critical: #c75854;
+    --high: #c07f3f;
+    --medium: #b8a13f;
+    --low: #3f8f6e;
+    --accent: #3d82a8;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: var(--ink);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 14px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* App Shell Navigation Bar */
+  header.nav-bar {
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-shrink: 0;
+    z-index: 100;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .brand-logo {
+    display: inline-block;
+    width: 24px;
+    height: 24px;
+    background: var(--panel-raised);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--critical);
+  }
+  .brand-title {
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .brand-badge {
+    font-family: var(--mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    background: var(--line);
+    color: var(--muted);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-weight: 600;
+  }
+
+  /* Tabs switcher */
+  .tabs-group {
+    display: flex;
+    align-items: center;
+    background: var(--panel-raised);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 3px;
+    gap: 2px;
+  }
+  .tab-btn {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 500;
+    padding: 6px 14px;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.15s ease;
+  }
+  .tab-btn:hover {
+    color: var(--text);
+  }
+  .tab-btn.active {
+    background: var(--line);
+    color: #fff;
+    font-weight: 600;
+  }
+  .tab-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--muted-dim);
+  }
+  .tab-btn.active .tab-dot {
+    background: var(--accent);
+  }
+
+  /* Right action buttons */
+  .nav-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .external-link-btn {
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 12px;
+    text-decoration: none;
+    padding: 6px 10px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    transition: all 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .external-link-btn:hover {
+    color: var(--text);
+    border-color: var(--muted-dim);
+  }
+
+  /* Main viewport container */
+  main#viewport {
+    flex: 1;
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: var(--ink);
+  }
+  iframe.view-frame {
+    width: 100%;
+    height: 100%;
+    border: none;
+    display: none;
+    background: var(--ink);
+  }
+  iframe.view-frame.active {
+    display: block;
+  }
+</style>
+</head>
+<body>
+
+  <header class="nav-bar">
+    <div class="brand">
+      <div class="brand-logo">!</div>
+      <div class="brand-title">
+        OPSEC SCANNER
+        <span class="brand-badge">Self-Audit</span>
+      </div>
+    </div>
+
+    <nav class="tabs-group" aria-label="Views">
+      <button class="tab-btn active" data-target="frame-explorer" id="tab-explorer">
+        <span class="tab-dot"></span>
+        Findings Explorer
+      </button>
+      <button class="tab-btn" data-target="frame-report" id="tab-report">
+        <span class="tab-dot"></span>
+        Case-File Report
+      </button>
+      <button class="tab-btn" data-target="frame-ops" id="tab-ops">
+        <span class="tab-dot"></span>
+        Operations Center
+      </button>
+    </nav>
+
+    <div class="nav-actions">
+      <a href="/webui/findings_explorer.html" target="_blank" class="external-link-btn" id="open-external-btn" title="Open current view in new window">
+        <span>Open Tab</span>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+      </a>
+    </div>
+  </header>
+
+  <main id="viewport">
+    <iframe id="frame-explorer" class="view-frame active" src="/webui/findings_explorer.html" title="Findings Explorer"></iframe>
+    <iframe id="frame-report" class="view-frame" src="/demo_report.html" title="Case-File Report"></iframe>
+    <iframe id="frame-ops" class="view-frame" src="/demo_ops_center.html" title="Operations Center"></iframe>
+  </main>
+
+  <script>
+    (function () {
+      var tabs = document.querySelectorAll(".tab-btn");
+      var frames = document.querySelectorAll(".view-frame");
+      var openExternalBtn = document.getElementById("open-external-btn");
+
+      var routeMap = {
+        "frame-explorer": "/webui/findings_explorer.html",
+        "frame-report": "/demo_report.html",
+        "frame-ops": "/demo_ops_center.html"
+      };
+
+      tabs.forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          var targetId = btn.getAttribute("data-target");
+
+          tabs.forEach(function (t) { t.classList.remove("active"); });
+          frames.forEach(function (f) { f.classList.remove("active"); });
+
+          btn.classList.add("active");
+          var activeFrame = document.getElementById(targetId);
+          if (activeFrame) {
+            activeFrame.classList.add("active");
+          }
+
+          if (routeMap[targetId]) {
+            openExternalBtn.href = routeMap[targetId];
+          }
+        });
+      });
+    })();
+  </script>
+</body>
+</html>
