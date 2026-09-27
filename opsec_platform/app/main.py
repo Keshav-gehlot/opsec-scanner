@@ -38,7 +38,7 @@ def create_app() -> FastAPI:
     from opsec_platform.app.security import hash_password
     db = _SessionLocal()
     try:
-        admin = db.query(User).filter(User.email == "admin@opsec.local").first()
+        admin = db.query(User).filter(User.email == "admin@opsecscanner.com").first()
         if admin is None:
             org = db.query(Org).filter(Org.name == "OPSEC Scanner").first()
             if org is None:
@@ -47,7 +47,7 @@ def create_app() -> FastAPI:
                 db.flush()
             db.add(User(
                 org_id=org.id,
-                email="admin@opsec.local",
+                email="admin@opsecscanner.com",
                 display_name="Administrator",
                 hashed_password=hash_password("admin12345"),
                 auth_provider="local",
