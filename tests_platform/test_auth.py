@@ -153,6 +153,17 @@ def test_oauth_login_returns_clear_error_when_provider_not_configured(client):
         assert "CLIENT_ID" in r.json()["detail"]
 
 
+def test_oauth_callback_route_is_registered_when_provider_not_configured(client):
+    # Regression test: APIRouter.route registered this Starlette-style route
+    # incorrectly for FastAPI and production returned 404 for the callback.
+    # The callback must exist even before credentials are configured; the
+    # provider configuration gate should then return the expected 501.
+    for method in ("get", "post"):
+        r = getattr(client, method)("/auth/oauth/google/callback", follow_redirects=False)
+        assert r.status_code == 501
+        assert "Google" in r.json()["detail"]
+
+
 def test_oauth_login_rejects_unknown_provider(client):
     r = client.get("/auth/oauth/facebook/login", follow_redirects=False)
     assert r.status_code == 404
