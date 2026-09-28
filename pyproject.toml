@@ -39,3 +39,6 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["opsec_scanner*", "opsec_platform*"]
+
+[tool.vercel]
+entrypoint = "opsec_platform.app.main:app"
