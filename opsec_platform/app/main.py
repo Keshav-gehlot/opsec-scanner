@@ -62,3 +62,51 @@ def create_app() -> FastAPI:
         finally:
             db.close()
 
+
+    app.include_router(auth_routes.router)
+    app.include_router(oauth_routes.router)
+    app.include_router(activity_routes.router)
+
+    @app.middleware("http")
+    async def security_headers(request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        response.headers["Content-Security-Policy"] = "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'"
+        if settings.cookie_secure:
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        return response
+
+    @app.get("/")
+    def root_redirect():
+        return FileResponse(static_dir / "login.html")
+
+    @app.get("/login")
+    def login_page():
+        return FileResponse(static_dir / "login.html")
+
+    @app.get("/dashboard")
+    def dashboard_page():
+        return FileResponse(static_dir / "login.html")
+
+    @app.get("/health")
+    def health():
+        from sqlalchemy import text
+        from opsec_platform.app.dependencies import _SessionLocal
+        db = _SessionLocal()
+        try:
+            db.execute(text("SELECT 1"))
+            database = "ok"
+        except Exception:
+            database = "unavailable"
+        finally:
+            db.close()
+        status_code = 200 if database == "ok" else 503
+        return JSONResponse(status_code=status_code, content={"status": "ok" if database == "ok" else "degraded", "database": database, "sso_providers_configured": configured_providers(settings)})
+
+    return app
+
+
+app = create_app()
