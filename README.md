@@ -1,5 +1,56 @@
 # OPSEC Leak Scanner
 
+<p align="center">
+  <strong>Find what your repositories and media files reveal about you.</strong><br>
+  <sub>Local-first OPSEC auditing for Git history, secrets, metadata, identity correlation, and risk.</sub>
+</p>
+
+<p align="center">
+  <img src="https://github.com/Keshav-gehlot/opsec-scanner/actions/workflows/ci.yml/badge.svg" alt="CI status">
+  <img src="https://img.shields.io/badge/python-3.10%2B-3776AB" alt="Python 3.10+">
+  <img src="https://img.shields.io/badge/focus-OPSEC-a8a29e" alt="OPSEC">
+</p>
+
+> **Security first:** scan your own repositories and media. Findings are redacted by default, and the CLI stays local unless you explicitly enable activity reporting.
+
+## Project at a glance
+
+| Layer | What it does |
+| --- | --- |
+| **Git engine** | History, root commits, deleted content, reflog/dangling commits, patch diffs |
+| **Media engine** | Image EXIF, PDF/Office metadata and text, OCR |
+| **Detection** | Patterns, entropy, allowlists, identity correlation |
+| **Risk** | Severity × identity confidence × exposure |
+| **Reporting** | HTML, JSON, SARIF, PDF, Operations Center, web explorer |
+| **Optional platform** | FastAPI auth, sessions, SSO wiring, activity tracking |
+
+## Documentation map
+
+| Goal | Where to look |
+| --- | --- |
+| Run the scanner | **Installation** → **CLI usage** |
+| Understand findings | **Detection and correlation** → `rules/` |
+| Explore JSON findings | `webui/findings_explorer.html` |
+| Run the auth platform | `opsec_platform/README.md` |
+| Configure SSO | `opsec_platform/README.md` |
+| Deploy | **CI/CD and deployment** |
+| Contribute | **Testing** → **Contributing** |
+
+## Current status
+
+The repository is continuously tested in GitHub Actions. The optional platform is configured for deployment through the project's hosting environments; deployment state should be checked in the provider dashboards because it can change independently of source code.
+
+| Area | State |
+| --- | --- |
+| CLI scanner | Local-first scanner with HTML, JSON, SARIF and optional PDF output |
+| Platform auth | Password auth, revocable sessions, activity logging, OAuth wiring |
+| CI | GitHub Actions matrix for Python 3.10–3.12 plus platform/web UI checks |
+| Vercel | Platform entrypoint configured for production deployment |
+| Render | Dedicated API service + PostgreSQL |
+| Supabase | Dedicated project exists; current application does not use Supabase tables/SDK |
+| Google OAuth | Provider wiring exists; credentials are deployment secrets |
+
+
 Self-audit OPSEC scanner for your own Git repositories and media files. It finds accidental exposure of identity data, secrets, internal infrastructure details, and document/image metadata, then correlates findings with a target identity and scores them by risk.
 
 The project has two deliberately separate parts:
