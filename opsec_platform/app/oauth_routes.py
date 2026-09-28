@@ -108,15 +108,14 @@ async def _fetch_provider_identity(provider: str, oauth, request: Request) -> di
     raise ValueError(f"unhandled provider: {provider}")  # unreachable given SUPPORTED_PROVIDERS gate above
 
 
-@router.route("/{provider}/callback", methods=["GET", "POST"])
+@router.api_route("/{provider}/callback", methods=["GET", "POST"])
 async def oauth_callback(request: Request):
     provider = request.path_params["provider"]
     settings = _require_configured_provider(provider)
     oauth = build_oauth_registry(settings)
 
-    # Needs its own DB session since this isn't a normal Depends(get_db)
-    # route (registered via @router.route for GET+POST, which doesn't
-    # support FastAPI's Depends injection the same way as @router.get).
+    # Use an explicit DB session for the OAuth callback so GET and POST
+    # callbacks share the same transaction lifecycle.
     from opsec_platform.app.dependencies import _SessionLocal, configure_db
     if _SessionLocal is None:
         configure_db()
