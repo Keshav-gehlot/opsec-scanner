@@ -12,11 +12,6 @@ dependencies = [
     "pytesseract>=0.3.10",
     "Pillow>=10.0.0",
     "weasyprint>=62.0",
-]
-
-[project.optional-dependencies]
-dev = ["pytest>=8.0.0", "pypdf>=4.0.0"]
-platform = [
     "fastapi>=0.110.0",
     "uvicorn>=0.29.0",
     "sqlalchemy>=2.0.0",
@@ -29,6 +24,10 @@ platform = [
     "itsdangerous>=2.1.0",
     "email-validator>=2.0.0",
 ]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0", "pypdf>=4.0.0"]
+platform = []
 
 [project.scripts]
 opsec-scan = "opsec_scanner.main:cli"
