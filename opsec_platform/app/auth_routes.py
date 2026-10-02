@@ -149,7 +149,7 @@ def login(payload: LoginRequest, request: Request, response: Response, db: DBSes
     user = db.query(User).filter(User.email == email).first()
     invalid = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password.")
     if user is None or user.auth_provider != "local" or not user.hashed_password:
-        log_activity(db, EventType.LOGIN_FAILED, ip_address=ip, user_agent=ua, detail="invalid local credentials")
+        log_activity(db, EventType.LOGIN_FAILED, ip_address=ip, user_agent=ua, detail=f"email={email} (no such local account)")
         raise invalid
     if not verify_password(payload.password, user.hashed_password):
         log_activity(db, EventType.LOGIN_FAILED, user_id=user.id, ip_address=ip, user_agent=ua, detail="wrong password")
@@ -256,5 +256,5 @@ def update_org_member(
     db.commit()
     db.refresh(member)
     ip, ua = _client_meta(request)
-    log_activity(db, EventType.USER_CREATED, user_id=user.id, ip_address=ip, user_agent=ua, detail=f"member_updated={member.id}")
+    log_activity(db, EventType.MEMBER_UPDATED, user_id=user.id, ip_address=ip, user_agent=ua, detail=f"member_updated={member.id}")
     return member
