@@ -44,7 +44,7 @@ def my_activity(
 
 @router.post("/report-scan", status_code=201)
 def report_scan(
-    detail: str,
+    detail: str = Query(min_length=1, max_length=2000),
     db: DBSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
