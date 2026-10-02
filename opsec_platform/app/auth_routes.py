@@ -8,13 +8,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from sqlalchemy.orm import Session as DBSession
 
 from opsec_platform.app.activity import EventType, log_activity
-from opsec_platform.app.dependencies import (
-    SESSION_COOKIE_NAME,
-    _extract_token,
-    get_current_user,
-    get_current_user_optional,
-    get_db,
-)
+from opsec_platform.app.dependencies import SESSION_COOKIE_NAME, _extract_token, get_current_user, get_current_user_optional, get_db
 from opsec_platform.app.models import Org, Session as SessionModel, User
 from opsec_platform.app.security import create_session_token, decode_session_token, hash_password, verify_password
 
@@ -63,7 +57,6 @@ class UserOut(BaseModel):
     is_active: bool
     created_at: datetime
     last_login_at: datetime | None
-
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -75,7 +68,6 @@ class SessionOut(BaseModel):
     ip_address: str | None
     user_agent: str | None
     current: bool = False
-
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -92,12 +84,8 @@ def _issue_session(db: DBSession, user: User, request: Request, response: Respon
     db.commit()
 
     from opsec_platform.app.config import get_settings
-
     response.set_cookie(
-        SESSION_COOKIE_NAME,
-        token,
-        httponly=True,
-        samesite="lax",
+        SESSION_COOKIE_NAME, token, httponly=True, samesite="lax",
         secure=get_settings().cookie_secure,
         max_age=max(1, int((expires_at - datetime.now(timezone.utc)).total_seconds())),
     )
@@ -114,13 +102,8 @@ def _current_session_id(request: Request) -> str:
 
 
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
-def register(
-    payload: RegisterRequest,
-    request: Request,
-    db: DBSession = Depends(get_db),
-    caller: User | None = Depends(get_current_user_optional),
-):
-    existing_user = db.query(User).filter(User.email == payload.email).first()
+def register(payload: RegisterRequest, request: Request, db: DBSession = Depends(get_db), caller: User | None = Depends(get_current_user_optional)):
+    existing_user = db.query(User).filter(User.email == str(payload.email).lower()).first()
     if existing_user is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="An account with this email already exists.")
 
@@ -132,15 +115,9 @@ def register(
         is_admin = True
     else:
         if caller is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Authentication required to add a user to an existing organization. Log in as an admin of that org first.",
-            )
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required to add a user to an existing organization. Log in as an admin of that org first.")
         if not caller.is_org_admin or caller.org_id != org.id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only an admin of this organization can add new users to it.",
-            )
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only an admin of this organization can add new users to it.")
         is_admin = False
 
     user = User(
@@ -154,7 +131,6 @@ def register(
     db.add(user)
     db.commit()
     db.refresh(user)
-
     ip, ua = _client_meta(request)
     log_activity(db, EventType.USER_CREATED, user_id=user.id, ip_address=ip, user_agent=ua, detail=f"org={org.name}, admin={is_admin}")
     return user
@@ -163,7 +139,6 @@ def register(
 @router.post("/login", response_model=UserOut)
 def login(payload: LoginRequest, request: Request, response: Response, db: DBSession = Depends(get_db)):
     from opsec_platform.app.activity import is_login_rate_limited
-
     ip, ua = _client_meta(request)
     email = str(payload.email).lower()
 
@@ -173,15 +148,12 @@ def login(payload: LoginRequest, request: Request, response: Response, db: DBSes
 
     user = db.query(User).filter(User.email == email).first()
     invalid = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password.")
-
     if user is None or user.auth_provider != "local" or not user.hashed_password:
         log_activity(db, EventType.LOGIN_FAILED, ip_address=ip, user_agent=ua, detail="invalid local credentials")
         raise invalid
-
     if not verify_password(payload.password, user.hashed_password):
         log_activity(db, EventType.LOGIN_FAILED, user_id=user.id, ip_address=ip, user_agent=ua, detail="wrong password")
         raise invalid
-
     if not user.is_active:
         log_activity(db, EventType.LOGIN_FAILED, user_id=user.id, ip_address=ip, user_agent=ua, detail="account inactive")
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This account has been deactivated.")
@@ -194,11 +166,10 @@ def login(payload: LoginRequest, request: Request, response: Response, db: DBSes
 @router.post("/logout")
 def logout(request: Request, response: Response, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
     session_id = _current_session_id(request)
-    session_row = db.query(SessionModel).filter(SessionModel.id == session_id, SessionModel.user_id == user.id).first()
-    if session_row:
-        session_row.revoked = True
+    row = db.query(SessionModel).filter(SessionModel.id == session_id, SessionModel.user_id == user.id).first()
+    if row:
+        row.revoked = True
         db.commit()
-
     ip, ua = _client_meta(request)
     log_activity(db, EventType.LOGOUT, user_id=user.id, ip_address=ip, user_agent=ua)
     response.delete_cookie(SESSION_COOKIE_NAME)
@@ -215,21 +186,15 @@ def sessions(request: Request, db: DBSession = Depends(get_db), user: User = Dep
     current_id = _current_session_id(request)
     rows = (
         db.query(SessionModel)
-        .filter(
-            SessionModel.user_id == user.id,
-            SessionModel.revoked.is_(False),
-            SessionModel.expires_at > datetime.now(timezone.utc),
-        )
-        .order_by(SessionModel.created_at.desc())
-        .limit(25)
-        .all()
+        .filter(SessionModel.user_id == user.id, SessionModel.revoked.is_(False), SessionModel.expires_at > datetime.now(timezone.utc))
+        .order_by(SessionModel.created_at.desc()).limit(25).all()
     )
     return [SessionOut.model_validate(row, from_attributes=True).model_copy(update={"current": row.id == current_id}) for row in rows]
 
 
 @router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
-def revoke_session(session_id: str, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
-    current_id = None
+def revoke_session(session_id: str, request: Request, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
+    current_id = _current_session_id(request)
     row = db.query(SessionModel).filter(SessionModel.id == session_id, SessionModel.user_id == user.id).first()
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found.")
@@ -240,18 +205,12 @@ def revoke_session(session_id: str, db: DBSession = Depends(get_db), user: User 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.post("/sessions/revoke-others", status_code=status.HTTP_200_OK)
+@router.post("/sessions/revoke-others")
 def revoke_other_sessions(request: Request, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
     current_id = _current_session_id(request)
-    changed = (
-        db.query(SessionModel)
-        .filter(
-            SessionModel.user_id == user.id,
-            SessionModel.id != current_id,
-            SessionModel.revoked.is_(False),
-        )
-        .update({SessionModel.revoked: True}, synchronize_session=False)
-    )
+    changed = db.query(SessionModel).filter(
+        SessionModel.user_id == user.id, SessionModel.id != current_id, SessionModel.revoked.is_(False)
+    ).update({SessionModel.revoked: True}, synchronize_session=False)
     db.commit()
     return {"revoked": changed}
 
@@ -260,72 +219,42 @@ def revoke_other_sessions(request: Request, db: DBSession = Depends(get_db), use
 def org_members(db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
     if not user.is_org_admin or not user.org_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only organization admins can view members.")
-    return (
-        db.query(User)
-        .filter(User.org_id == user.org_id)
-        .order_by(User.created_at.asc())
-        .all()
-    )
+    return db.query(User).filter(User.org_id == user.org_id).order_by(User.created_at.asc()).all()
 
 
 @router.patch("/org/members/{member_id}", response_model=UserOut)
 def update_org_member(
     member_id: str,
     payload: MemberStatusRequest,
+    request: Request,
     db: DBSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     if not user.is_org_admin or not user.org_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only organization admins can manage members.")
-
     member = db.query(User).filter(User.id == member_id, User.org_id == user.org_id).first()
     if member is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found.")
-
-    if member.id == user.id and payload.is_active is False:
+    if payload.is_active is False and member.id == user.id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="You cannot deactivate your own account.")
 
-    if payload.is_org_admin is False and member.is_org_admin:
-        other_admin = (
-            db.query(User)
-            .filter(
-                User.org_id == user.org_id,
-                User.is_org_admin.is_(True),
-                User.is_active.is_(True),
-                User.id != member.id,
-            )
-            .first()
-        )
-        if other_admin is None:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="The organization must keep at least one active admin.")
+    def has_other_active_admin() -> bool:
+        return db.query(User).filter(
+            User.org_id == user.org_id, User.is_org_admin.is_(True), User.is_active.is_(True), User.id != member.id
+        ).first() is not None
 
-    if payload.is_active is False and member.is_org_admin:
-        other_admin = (
-            db.query(User)
-            .filter(
-                User.org_id == user.org_id,
-                User.is_org_admin.is_(True),
-                User.is_active.is_(True),
-                User.id != member.id,
-            )
-            .first()
-        )
-        if other_admin is None:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="The organization must keep at least one active admin.")
+    if member.is_org_admin and ((payload.is_active is False) or (payload.is_org_admin is False)) and not has_other_active_admin():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="The organization must keep at least one active admin.")
 
     if payload.is_active is not None:
         member.is_active = payload.is_active
         if not payload.is_active:
-            db.query(SessionModel).filter(SessionModel.user_id == member.id).update(
-                {SessionModel.revoked: True}, synchronize_session=False
-            )
-
+            db.query(SessionModel).filter(SessionModel.user_id == member.id).update({SessionModel.revoked: True}, synchronize_session=False)
     if payload.is_org_admin is not None:
         member.is_org_admin = payload.is_org_admin
 
     db.commit()
     db.refresh(member)
-
-    ip, ua = _client_meta(user_request := Request(scope={"type": "http", "client": (None, 0), "headers": []}))
-    del ip, ua, user_request
+    ip, ua = _client_meta(request)
+    log_activity(db, EventType.USER_CREATED, user_id=user.id, ip_address=ip, user_agent=ua, detail=f"member_updated={member.id}")
     return member
