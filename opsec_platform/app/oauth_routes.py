@@ -95,16 +95,15 @@ async def _fetch_provider_identity(provider: str, oauth, request: Request) -> di
         # private and absent from /user.
         resp = await client.get("user", token=token)
         profile = resp.json()
-        email = profile.get("email")
-        if not email:
-            emails_resp = await client.get("user/emails", token=token)
-            emails = emails_resp.json()
-            primary = next((e["email"] for e in emails if e.get("primary")), None)
-            email = primary or (emails[0]["email"] if emails else None)
+        emails_resp = await client.get("user/emails", token=token)
+        emails = emails_resp.json()
+        verified_primary = next((e.get("email") for e in emails if e.get("primary") and e.get("verified")), None)
+        verified_any = next((e.get("email") for e in emails if e.get("verified")), None)
+        email = verified_primary or verified_any
         return {
             "provider_user_id": str(profile.get("id")),
             "email": email,
-            "email_verified": True,
+            "email_verified": bool(email),
             "display_name": profile.get("name") or profile.get("login"),
         }
     raise ValueError(f"unhandled provider: {provider}")  # unreachable given SUPPORTED_PROVIDERS gate above
@@ -145,15 +144,15 @@ async def oauth_callback(request: Request):
             detail=f"{provider.capitalize()} did not provide an email address for this account.",
         )
 
-    # Google is used as an account identity provider here, so only accept
-    # identities whose email address Google explicitly marks as verified.
-    # This prevents an unverified address from being used to link into an
-    # existing local account with the same email.
-    if provider == "google" and identity.get("email_verified") is not True:
-        log_activity(db, EventType.OAUTH_LOGIN_FAILED, ip_address=ip, user_agent=ua, detail="google: email not verified")
+    # Account linking is keyed by email, so only accept an identity whose
+    # provider explicitly verified that email address. This applies to
+    # every supported SSO provider; otherwise an unverified provider claim
+    # could be used to take over a matching local account.
+    if identity.get("email_verified") is not True:
+        log_activity(db, EventType.OAUTH_LOGIN_FAILED, ip_address=ip, user_agent=ua, detail=f"{provider}: email not verified")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Google did not provide a verified email address for this account.",
+            detail=f"{provider.capitalize()} did not provide a verified email address for this account.",
         )
 
     try:
