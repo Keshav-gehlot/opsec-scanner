@@ -17,6 +17,7 @@ still overrides the config file.
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import sys
 from pathlib import Path
@@ -43,6 +44,20 @@ console = Console()
 _RISK_ORDER = {"LOW": 0, "MEDIUM": 1, "HIGH": 2, "CRITICAL": 3}
 
 
+def _non_negative_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("must be 0 or greater")
+    return parsed
+
+
+def _non_negative_float(value: str) -> float:
+    parsed = float(value)
+    if not math.isfinite(parsed) or parsed < 0:
+        raise argparse.ArgumentTypeError("must be a finite number 0 or greater")
+    return parsed
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="opsec-scan",
@@ -61,8 +76,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--reveal-in-pdf", action="store_true", help="Show secret values in full in the PDF export. Personal use only — do not distribute.")
     parser.add_argument("--reveal-in-json", action="store_true", help="Show secret values in full in the JSON export. Personal use only — do not distribute.")
     parser.add_argument("--reveal-in-sarif", action="store_true", help="Show secret values in full in the SARIF export. Not recommended for PR checks.")
-    parser.add_argument("--entropy-threshold", type=float, default=3.5, help="Shannon entropy threshold for flagging high-randomness strings (default: 3.5)")
-    parser.add_argument("--max-patch-commits", type=int, default=500, help="Cap on how many commits to run patch-diffing against (default: 500, use 0 for unlimited)")
+    parser.add_argument("--entropy-threshold", type=_non_negative_float, default=3.5, help="Shannon entropy threshold for flagging high-randomness strings (default: 3.5)")
+    parser.add_argument("--max-patch-commits", type=_non_negative_int, default=500, help="Cap on how many commits to run patch-diffing against (default: 500, use 0 for unlimited)")
     parser.add_argument("--public-repo", action="store_true", help="Treat scanned targets as already publicly exposed (forces exposure weight to 1.0x instead of the local-only default).")
     parser.add_argument(
         "--fail-on",
