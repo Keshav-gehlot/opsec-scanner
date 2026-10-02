@@ -26,6 +26,7 @@ from opsec_scanner.models import RawFinding, SourceType
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".heic", ".tiff", ".webp"}
 PDF_EXTENSIONS = {".pdf"}
 DOCX_EXTENSIONS = {".docx", ".xlsx", ".pptx"}
+MAX_OCR_PIXELS = 50_000_000
 
 # EXIF tags worth surfacing as individual findings — GPS is the highest
 # value (physical location deanonymization), everything else helps build
@@ -136,14 +137,23 @@ def scan_image_ocr(path: Path) -> Iterator[RawFinding]:
         return
 
     try:
-        img = Image.open(path)
-        # Without a timeout, a pathological or maliciously crafted image
-        # can hang tesseract indefinitely — exiftool already had a 15s
-        # guard for the equivalent risk, OCR didn't. Matters more now
-        # that media scanning runs in a thread pool: a hung OCR call
-        # ties up a worker slot rather than just blocking a single
-        # sequential scan.
-        text = pytesseract.image_to_string(img, timeout=15)
+        with Image.open(path) as img:
+            width, height = img.size
+            if width * height > MAX_OCR_PIXELS:
+                yield RawFinding(
+                    source_type=SourceType.MEDIA_EXIF,
+                    raw_text=f"[OCR skipped: image has {width * height:,} pixels, above the {MAX_OCR_PIXELS:,}-pixel safety limit]",
+                    context="OCR image-size limit",
+                    origin=str(path),
+                )
+                return
+            # Without a timeout, a pathological or maliciously crafted image
+            # can hang tesseract indefinitely — exiftool already had a 15s
+            # guard for the equivalent risk, OCR didn't. Matters more now
+            # that media scanning runs in a thread pool: a hung OCR call
+            # ties up a worker slot rather than just blocking a single
+            # sequential scan.
+            text = pytesseract.image_to_string(img, timeout=15)
     except RuntimeError as e:
         # pytesseract raises RuntimeError specifically on timeout
         yield RawFinding(
@@ -179,6 +189,7 @@ def scan_image_ocr(path: Path) -> Iterator[RawFinding]:
 
 
 
+def scan_pdf_metadata(path: Path) -> Iterator[RawFinding]:
     """
     Uses PyMuPDF to pull document metadata (author, creator tool, producer,
     and any embedded local file paths in the creator/producer strings).
@@ -205,38 +216,34 @@ def scan_image_ocr(path: Path) -> Iterator[RawFinding]:
         )
         return
 
-    meta = doc.metadata or {}
-    interesting_fields = ("author", "creator", "producer", "subject", "title")
-
-    for field in interesting_fields:
-        value = meta.get(field)
-        if value:
-            yield RawFinding(
-                source_type=SourceType.MEDIA_DOC,
-                raw_text=str(value),
-                context=f"PDF metadata field: {field}",
-                origin=str(path),
-                metadata={"field": field},
-            )
-
-    # Body text — metadata-only scanning misses secrets typed directly
-    # into the document (e.g. a leaked password pasted into a shared PDF).
     try:
-        body_text = "\n".join(page.get_text() for page in doc)
-        body_text = body_text.strip()
-        if body_text:
-            yield RawFinding(
-                source_type=SourceType.MEDIA_DOC,
-                raw_text=body_text,
-                context="PDF body text",
-                origin=str(path),
-                metadata={"field": "body_text"},
-            )
-    except Exception:
-        pass
+        meta = doc.metadata or {}
+        interesting_fields = ("author", "creator", "producer", "subject", "title")
+        for field in interesting_fields:
+            value = meta.get(field)
+            if value:
+                yield RawFinding(
+                    source_type=SourceType.MEDIA_DOC,
+                    raw_text=str(value),
+                    context=f"PDF metadata field: {field}",
+                    origin=str(path),
+                    metadata={"field": field},
+                )
 
-    doc.close()
-
+        try:
+            body_text = "\n".join(page.get_text() for page in doc).strip()
+            if body_text:
+                yield RawFinding(
+                    source_type=SourceType.MEDIA_DOC,
+                    raw_text=body_text,
+                    context="PDF body text",
+                    origin=str(path),
+                    metadata={"field": "body_text"},
+                )
+        except Exception:
+            pass
+    finally:
+        doc.close()
 
 def scan_office_document(path: Path) -> Iterator[RawFinding]:
     """

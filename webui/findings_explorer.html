@@ -466,26 +466,34 @@
           '<span class="reveal-unavailable">redacted at export time — re-run with --reveal-in-json for a personal copy</span></div>';
       }
 
-      var occurrenceBadge = (f.occurrence_count && f.occurrence_count > 1)
-        ? '<span class="occurrence-badge">\u00d7' + f.occurrence_count + '</span>' : "";
-      var entropyField = (f.entropy_score !== null && f.entropy_score !== undefined)
-        ? '<div class="field"><span class="field-label">Entropy</span><span class="field-value">' + f.entropy_score.toFixed(2) + ' bits/char</span></div>' : "";
+      var riskLabels = { CRITICAL: true, HIGH: true, MEDIUM: true, LOW: true };
+      var riskLabel = riskLabels[f.risk_label] ? f.risk_label : "UNKNOWN";
+      var riskScore = Number(f.risk_score);
+      if (!Number.isFinite(riskScore)) riskScore = 0;
+      var identityConfidence = Number(f.identity_confidence);
+      var identityText = Number.isFinite(identityConfidence) ? identityConfidence.toFixed(2) : "—";
+      var occurrenceCount = Number(f.occurrence_count);
+      var occurrenceBadge = Number.isFinite(occurrenceCount) && occurrenceCount > 1
+        ? '<span class="occurrence-badge">\u00d7' + occurrenceCount + '</span>' : "";
+      var entropy = Number(f.entropy_score);
+      var entropyField = Number.isFinite(entropy)
+        ? '<div class="field"><span class="field-label">Entropy</span><span class="field-value">' + entropy.toFixed(2) + ' bits/char</span></div>' : "";
 
       return '<article class="finding">' +
         '<div class="finding-number">' + String(i + 1).padStart(3, "0") + '</div>' +
         '<div>' +
           '<div class="finding-head">' +
-            '<span class="stamp stamp-' + f.risk_label + '">' + f.risk_label + '</span>' +
-            '<span class="finding-score">RISK ' + f.risk_score.toFixed(2) + '</span>' +
-            '<span class="finding-category">' + escapeHtml(CATEGORY_LABELS[f.category] || f.category) + '</span>' +
+            '<span class="stamp stamp-' + riskLabel + '">' + escapeHtml(riskLabel) + '</span>' +
+            '<span class="finding-score">RISK ' + riskScore.toFixed(2) + '</span>' +
+            '<span class="finding-category">' + escapeHtml(CATEGORY_LABELS[f.category] || f.category || "Unknown") + '</span>' +
             occurrenceBadge +
-            '<span class="finding-rule">' + escapeHtml(f.rule_id) + '</span>' +
+            '<span class="finding-rule">' + escapeHtml(f.rule_id || "") + '</span>' +
           '</div>' +
           evidenceHtml +
           '<div class="finding-fields">' +
             '<div class="field"><span class="field-label">Origin</span><span class="field-value">' + escapeHtml(f.origin || "unknown") + '</span></div>' +
             '<div class="field"><span class="field-label">Context</span><span class="field-value">' + escapeHtml(f.context || "") + '</span></div>' +
-            '<div class="field"><span class="field-label">Identity confidence</span><span class="field-value">\u00d7' + f.identity_confidence + '</span></div>' +
+            '<div class="field"><span class="field-label">Identity confidence</span><span class="field-value">\u00d7' + identityText + '</span></div>' +
             '<div class="field"><span class="field-label">Exposure</span><span class="field-value">' + escapeHtml((f.exposure_level || "").replace(/_/g, " ")) + '</span></div>' +
             entropyField +
           '</div>' +

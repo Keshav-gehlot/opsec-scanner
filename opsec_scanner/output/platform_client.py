@@ -16,6 +16,8 @@ the reporting call once you already have a token.
 
 from __future__ import annotations
 
+from urllib.parse import urlparse
+
 from opsec_scanner.scoring.risk_engine import ScoredFinding
 
 
@@ -49,6 +51,12 @@ def report_scan_activity(
     httpx.Client — lets callers (e.g. tests) supply their own client
     configuration without this function needing to know why.
     """
+    parsed = urlparse(platform_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ActivityReportError("Platform URL must be an absolute http(s) URL.")
+    if parsed.scheme == "http" and parsed.hostname not in {"localhost", "127.0.0.1", "::1"}:
+        raise ActivityReportError("Refusing to send the platform bearer token over plain HTTP. Use HTTPS (HTTP is allowed only for local development).")
+
     try:
         import httpx
     except ImportError as e:

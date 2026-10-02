@@ -135,8 +135,20 @@ def test_report_scan_activity_with_invalid_token_raises_clear_error(live_platfor
         report_scan_activity(live_platform_url, "not-a-real-token", _scored_findings(), "my-repo")
 
 
-def test_report_scan_activity_unreachable_platform_raises_clean_error_not_raw_exception():
-    with pytest.raises(ActivityReportError, match="Could not reach the platform"):
+def test_report_scan_activity_rejects_non_local_plain_http():
+    with pytest.raises(ActivityReportError, match="plain HTTP"):
         report_scan_activity(
-            "http://this-host-does-not-exist.invalid:9999", "some-token", _scored_findings(), "my-repo"
+            "http://platform.example.invalid:9999", "some-token", _scored_findings(), "my-repo"
         )
+
+def test_report_scan_activity_rejects_non_http_urls():
+    with pytest.raises(ActivityReportError, match="absolute http"):
+        report_scan_activity(
+            "ftp://platform.example.invalid", "some-token", _scored_findings(), "my-repo"
+        )
+
+
+def test_report_scan_activity_allows_local_http_for_development(live_platform_url):
+    token = _get_token(live_platform_url)
+    result = report_scan_activity(live_platform_url, token, _scored_findings(), "local-test")
+    assert "id" in result

@@ -59,15 +59,45 @@ def load_target_profile(path: Path | str | None = None) -> TargetProfile:
             )
             sys.exit(1)
 
+    if not isinstance(raw, dict):
+        print(f"[config] '{p}' must contain a YAML mapping/object.", file=sys.stderr)
+        sys.exit(1)
+
+    def _string_list(key: str) -> list[str]:
+        value = raw.get(key, [])
+        if value is None:
+            return []
+        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+            print(f"[config] '{p}' field '{key}' must be a list of strings.", file=sys.stderr)
+            sys.exit(1)
+        return value
+
+    name = raw.get("name", "")
+    if not isinstance(name, str) or not name.strip():
+        print(f"[config] '{p}' field 'name' must be a non-empty string.", file=sys.stderr)
+        sys.exit(1)
+
     coords = raw.get("home_coordinates")
-    home_coordinates = tuple(coords) if coords else None
+    if coords is None:
+        home_coordinates = None
+    elif (
+        isinstance(coords, (list, tuple))
+        and len(coords) == 2
+        and all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in coords)
+        and -90 <= float(coords[0]) <= 90
+        and -180 <= float(coords[1]) <= 180
+    ):
+        home_coordinates = (float(coords[0]), float(coords[1]))
+    else:
+        print(f"[config] '{p}' field 'home_coordinates' must be [latitude, longitude] within valid ranges.", file=sys.stderr)
+        sys.exit(1)
 
     return TargetProfile(
-        name=raw.get("name", ""),
-        aliases=raw.get("aliases", []),
-        emails=raw.get("emails", []),
-        domains=raw.get("domains", []),
-        github_handles=raw.get("github_handles", []),
+        name=name.strip(),
+        aliases=_string_list("aliases"),
+        emails=_string_list("emails"),
+        domains=_string_list("domains"),
+        github_handles=_string_list("github_handles"),
         home_coordinates=home_coordinates,
     )
 

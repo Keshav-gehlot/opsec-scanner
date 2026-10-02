@@ -77,3 +77,47 @@ def test_ocr_call_passes_a_timeout(monkeypatch, tmp_path):
 
     list(scan_image_ocr(img_path))
     assert captured.get("timeout", 0) > 0
+
+
+def test_ocr_skips_oversized_images_before_ocr(monkeypatch, tmp_path):
+    from opsec_scanner.engines import media_engine
+
+    class FakeImage:
+        size = (10_000, 10_000)
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            return False
+
+    monkeypatch.setattr("PIL.Image.open", lambda path: FakeImage())
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("OCR should not run for an oversized image")
+
+    import pytesseract
+    monkeypatch.setattr(pytesseract, "image_to_string", fail_if_called)
+
+    img_path = tmp_path / "oversized.png"
+    img_path.write_bytes(b"placeholder")
+    findings = list(media_engine.scan_image_ocr(img_path))
+    assert findings
+    assert "safety limit" in findings[0].raw_text
+
+
+def test_pdf_media_scanner_extracts_metadata_and_body(tmp_path):
+    import fitz
+    from opsec_scanner.engines.media_engine import scan_pdf_metadata
+
+    pdf_path = tmp_path / "sample.pdf"
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "password=SuperSecret123")
+    doc.set_metadata({"author": "Test Author", "creator": "Test Tool"})
+    doc.save(pdf_path)
+    doc.close()
+
+    findings = list(scan_pdf_metadata(pdf_path))
+    raw = [f.raw_text for f in findings]
+    assert "Test Author" in raw
+    assert "Test Tool" in raw
+    assert any("password=SuperSecret123" in value for value in raw)

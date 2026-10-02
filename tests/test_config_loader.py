@@ -49,3 +49,27 @@ def test_corrupt_config_yaml_exits_cleanly_not_a_raw_exception(tmp_path):
 
     with pytest.raises(SystemExit):
         load_config(p)
+
+
+def test_target_profile_rejects_malformed_lists_and_coordinates(tmp_path):
+    from opsec_scanner.config import load_target_profile
+
+    bad_list = tmp_path / "bad_list.yaml"
+    bad_list.write_text(yaml.dump({"name": "Test", "aliases": "not-a-list"}))
+    with pytest.raises(SystemExit):
+        load_target_profile(bad_list)
+
+    bad_coords = tmp_path / "bad_coords.yaml"
+    bad_coords.write_text(yaml.dump({"name": "Test", "home_coordinates": [91, 0]}))
+    with pytest.raises(SystemExit):
+        load_target_profile(bad_coords)
+
+
+def test_target_profile_normalizes_valid_coordinates(tmp_path):
+    from opsec_scanner.config import load_target_profile
+
+    p = tmp_path / "profile.yaml"
+    p.write_text(yaml.dump({"name": " Test User ", "home_coordinates": [12.5, 80.25]}))
+    profile = load_target_profile(p)
+    assert profile.name == "Test User"
+    assert profile.home_coordinates == (12.5, 80.25)
