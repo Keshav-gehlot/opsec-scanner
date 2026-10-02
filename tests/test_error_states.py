@@ -13,6 +13,8 @@ was found."
 import subprocess
 import sys
 import textwrap
+
+import pytest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent
@@ -116,3 +118,15 @@ def test_corrupt_config_yaml_fails_cleanly_no_traceback(tmp_path):
     assert result.returncode == 1
     assert "Traceback" not in result.stdout
     assert "Traceback" not in result.stderr
+
+
+def test_negative_scan_bounds_are_rejected():
+    from opsec_scanner.main import build_arg_parser
+
+    parser = build_arg_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--max-patch-commits", "-1"])
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--entropy-threshold", "-0.1"])
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--entropy-threshold", "nan"])
