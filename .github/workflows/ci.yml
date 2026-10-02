@@ -79,3 +79,24 @@ jobs:
           PLATFORM_JWT_SECRET: "ci-test-secret-not-for-production"
           PLATFORM_COOKIE_SECURE: "false"
         run: pytest tests_platform/ -v
+
+
+  platform-frontend-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Check platform browser bundle
+        run: |
+          node --check opsec_platform/static/app.js
+          python - <<'PY'
+          from pathlib import Path
+          html = Path("opsec_platform/static/login.html").read_text()
+          assert 'style="' not in html, "platform login page must not contain inline style attributes"
+          assert "<script>" not in html, "platform login page must not contain inline scripts"
+          PY
