@@ -56,8 +56,7 @@ async def oauth_login(provider: str, request: Request):
     settings = _require_configured_provider(provider)
     oauth = build_oauth_registry(settings)
     client = oauth.create_client(provider)
-    # Build the callback from the origin that actually served this login request.\n    # This prevents a stale PLATFORM_BASE_URL (for example, localhost left in\n    # production) from sending Google back to the wrong host. The exact URI\n    # must still be registered with the provider for each deployed origin.\n    redirect_uri = f"{str(request.base_url).rstrip('/')}/auth/oauth/{provider}/callback"
-    try:
+    # Vercel terminates TLS before the FastAPI runtime, so request.base_url\n    # can reflect the internal localhost origin. Prefer the forwarded origin\n    # supplied by the platform proxy and fall back to request.base_url locally.\n    forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip()\n    forwarded_host = request.headers.get("x-forwarded-host", "").split(",")[0].strip()\n    if forwarded_proto in {"http", "https"} and forwarded_host:\n        origin = f"{forwarded_proto}://{forwarded_host}"\n    else:\n        origin = str(request.base_url).rstrip("/")\n    redirect_uri = f"{origin.rstrip('/')}/auth/oauth/{provider}/callback"\n    try:
         return await client.authorize_redirect(request, redirect_uri)
     except Exception as e:
         logger.exception("OAuth redirect initialization failed for provider=%s", provider)
