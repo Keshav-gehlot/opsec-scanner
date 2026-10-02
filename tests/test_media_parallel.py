@@ -102,3 +102,22 @@ def test_ocr_skips_oversized_images_before_ocr(monkeypatch, tmp_path):
     findings = list(media_engine.scan_image_ocr(img_path))
     assert findings
     assert "safety limit" in findings[0].raw_text
+
+
+def test_pdf_media_scanner_extracts_metadata_and_body(tmp_path):
+    import fitz
+    from opsec_scanner.engines.media_engine import scan_pdf_metadata
+
+    pdf_path = tmp_path / "sample.pdf"
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "password=SuperSecret123")
+    doc.set_metadata({"author": "Test Author", "creator": "Test Tool"})
+    doc.save(pdf_path)
+    doc.close()
+
+    findings = list(scan_pdf_metadata(pdf_path))
+    raw = [f.raw_text for f in findings]
+    assert "Test Author" in raw
+    assert "Test Tool" in raw
+    assert any("password=SuperSecret123" in value for value in raw)
