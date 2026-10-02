@@ -17,7 +17,7 @@ from opsec_platform.app.dependencies import configure_db
 from opsec_platform.app.oauth_providers import configured_providers
 
 
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.2.1"
 logger = logging.getLogger(__name__)
 
 
