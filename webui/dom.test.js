@@ -197,9 +197,9 @@ test("XSS payload in a finding field is escaped, not executed or rendered as rea
   const maliciousExport = JSON.stringify({
     generated_at: "2026-01-01T00:00:00Z", redacted: false, total_findings: 1,
     findings: [{
-      risk_score: 5.0, risk_label: "LOW", rule_id: "test", category: "system",
+      risk_score: "not-a-number", risk_label: "<img src=x onerror=window.__xss_risk=true>", rule_id: "test", category: "system",
       matched_text: "<img src=x onerror=window.__xss_img=true>", matched_text_length: 10,
-      base_severity: 5.0, entropy_score: null, identity_confidence: 1.0,
+      base_severity: 5.0, entropy_score: "not-a-number", identity_confidence: "<svg onload=window.__xss_conf=true>",
       identity_reason: "<script>window.__xss_fired = true</script>",
       exposure_level: "local_only", source_type: "git_patch",
       origin: "<script>window.__xss_fired2 = true</script>", context: "test", occurrence_count: 1, metadata: {},
@@ -216,8 +216,10 @@ test("XSS payload in a finding field is escaped, not executed or rendered as rea
   // "<" characters inside an already-safe attribute value or text node —
   // that's expected and fine, HTML attribute serialization doesn't need
   // to re-escape "<" the way element content does).
-  if (win.__xss_fired || win.__xss_fired2 || win.__xss_img) throw new Error("XSS payload executed — escaping is broken");
+  if (win.__xss_fired || win.__xss_fired2 || win.__xss_img || win.__xss_risk || win.__xss_conf) throw new Error("XSS payload executed — escaping or numeric validation is broken");
   if (listEl.querySelectorAll("script").length > 0) throw new Error("a real <script> element was created in the DOM");
+  if (listEl.querySelectorAll("img").length > 0) throw new Error("a real <img> element was created in the DOM");
+  if (listEl.querySelectorAll("svg").length > 0) throw new Error("a real <svg> element was created in the DOM");
   if (listEl.querySelectorAll("img").length > 0) throw new Error("a real <img> element was created in the DOM");
 
   // And the visible text content (what a person actually reads) should
