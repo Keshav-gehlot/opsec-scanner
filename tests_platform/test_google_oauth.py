@@ -116,3 +116,44 @@ def test_google_callback_links_existing_local_account(oauth_client, monkeypatch)
     assert me.status_code == 200
     assert me.json()["auth_provider"] == "google"
     assert me.json()["email"] == "person@example.com"
+
+
+def test_google_login_has_oauth_session_without_platform_jwt(monkeypatch):
+    monkeypatch.delenv("PLATFORM_JWT_SECRET", raising=False)
+    monkeypatch.setenv("PLATFORM_COOKIE_SECURE", "false")
+    monkeypatch.setenv("PLATFORM_DATABASE_URL", "sqlite:///:memory:")
+    monkeypatch.setenv("PLATFORM_BASE_URL", "https://opsec-scanner-seven.vercel.app")
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "test-client-id.apps.googleusercontent.com")
+    monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "test-client-secret")
+
+    import opsec_platform.app.dependencies as deps
+    from opsec_platform.app import oauth_routes
+
+    deps._engine = None
+    deps._SessionLocal = None
+
+    class FakeClient:
+        async def authorize_redirect(self, request, redirect_uri):
+            from fastapi.responses import RedirectResponse
+            assert redirect_uri.endswith("/auth/oauth/google/callback")
+            assert request.session is not None
+            return RedirectResponse(
+                "https://accounts.google.com/o/oauth2/auth",
+                status_code=302,
+            )
+
+    class FakeOAuth:
+        def create_client(self, provider):
+            assert provider == "google"
+            return FakeClient()
+
+    monkeypatch.setattr(oauth_routes, "build_oauth_registry", lambda settings: FakeOAuth())
+
+    from opsec_platform.app.main import create_app
+
+    client = TestClient(create_app())
+    response = client.get("/auth/oauth/google/login", follow_redirects=False)
+
+    assert response.status_code == 302
+    assert response.headers["location"].startswith("https://accounts.google.com/")
+    assert "opsec_oauth" in response.cookies
