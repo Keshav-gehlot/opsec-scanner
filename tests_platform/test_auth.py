@@ -412,3 +412,10 @@ def test_login_ip_rate_limit_blocks_after_threshold_failures_from_same_ip(monkey
 
     r = c.post("/auth/login", json={"email": "bob@example.com", "password": "testpass123"})
     assert r.status_code == 429
+
+
+def test_report_scan_activity_rejects_oversized_detail(client):
+    _register(client)
+    client.post("/auth/login", json={"email": "test@example.com", "password": "testpass123"})
+    r = client.post("/activity/report-scan", params={"detail": "x" * 2001})
+    assert r.status_code == 422
