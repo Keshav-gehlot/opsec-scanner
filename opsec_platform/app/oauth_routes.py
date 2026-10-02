@@ -54,7 +54,7 @@ async def oauth_login(provider: str, request: Request):
     settings = _require_configured_provider(provider)
     oauth = build_oauth_registry(settings)
     client = oauth.create_client(provider)
-    redirect_uri = f"{settings.base_url}/auth/oauth/{provider}/callback"
+    redirect_uri = f"{settings.base_url.rstrip('/')}/auth/oauth/{provider}/callback"
     try:
         return await client.authorize_redirect(request, redirect_uri)
     except Exception as e:
@@ -86,6 +86,7 @@ async def _fetch_provider_identity(provider: str, oauth, request: Request) -> di
         return {
             "provider_user_id": userinfo.get("sub"),
             "email": userinfo.get("email"),
+            "email_verified": userinfo.get("email_verified"),
             "display_name": userinfo.get("name") or userinfo.get("email"),
         }
     elif provider == "github":
@@ -103,6 +104,7 @@ async def _fetch_provider_identity(provider: str, oauth, request: Request) -> di
         return {
             "provider_user_id": str(profile.get("id")),
             "email": email,
+            "email_verified": True,
             "display_name": profile.get("name") or profile.get("login"),
         }
     raise ValueError(f"unhandled provider: {provider}")  # unreachable given SUPPORTED_PROVIDERS gate above
@@ -129,12 +131,29 @@ async def oauth_callback(request: Request):
         db.close()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"{provider.capitalize()} sign-in failed.")
 
+    if not identity.get("provider_user_id"):
+        log_activity(db, EventType.OAUTH_LOGIN_FAILED, ip_address=ip, user_agent=ua, detail=f"{provider}: no provider user id returned")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"{provider.capitalize()} did not provide a usable account identifier.",
+        )
+
     if not identity.get("email"):
         log_activity(db, EventType.OAUTH_LOGIN_FAILED, ip_address=ip, user_agent=ua, detail=f"{provider}: no email returned")
-        db.close()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"{provider.capitalize()} did not provide an email address for this account.",
+        )
+
+    # Google is used as an account identity provider here, so only accept
+    # identities whose email address Google explicitly marks as verified.
+    # This prevents an unverified address from being used to link into an
+    # existing local account with the same email.
+    if provider == "google" and identity.get("email_verified") is not True:
+        log_activity(db, EventType.OAUTH_LOGIN_FAILED, ip_address=ip, user_agent=ua, detail="google: email not verified")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Google did not provide a verified email address for this account.",
         )
 
     try:
