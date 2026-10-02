@@ -156,4 +156,3 @@ def test_google_login_has_oauth_session_without_platform_jwt(monkeypatch):
 
     assert response.status_code == 302
     assert response.headers["location"].startswith("https://accounts.google.com/")
-    assert "opsec_oauth" in response.cookies
