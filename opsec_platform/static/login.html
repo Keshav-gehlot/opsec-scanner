@@ -59,7 +59,7 @@
     <div id="ssoLabel" class="divider" hidden>Single sign-on</div>
     <div id="providers" class="providers" aria-live="polite"></div>
     <p id="ssoEmpty" class="helper" hidden>No SSO provider is enabled on this deployment. Local sign-in is still available.</p>
-    <p class="helper switch-helper"><span id="switchHint">Need an account?</span> <button id="switchAction" type="button" style="border:0;background:none;color:var(--accent);padding:0;font-weight:700">Create one</button></p>
+    <p class="helper switch-helper"><span id="switchHint">Need an account?</span> <button id="switchAction" type="button" class="link-button">Create one</button></p>
   </section>
 </section>
 <section id="dashboardView" class="dashboard" aria-label="Account dashboard">
@@ -79,9 +79,16 @@
       <section class="card"><h3>Recent activity</h3><div id="activityList" class="activity"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div></section>
     </div>
     <div class="dashboard-grid">
-      <section class="card"><h3>Active sessions</h3><div id="sessionList" class="sessions"><div class="skeleton"></div><div class="skeleton"></div></div></section>
+      <section class="card">
+        <div class="card-head"><div><h3>Active sessions</h3><p class="card-subtext">Browsers and devices currently signed in.</p></div><button id="revokeOthersButton" class="secondary compact" type="button">Revoke others</button></div>
+        <div id="sessionList" class="sessions"><div class="skeleton"></div><div class="skeleton"></div></div>
+      </section>
       <section class="card"><h3>What to do next</h3><div class="kv"><div class="kv-row"><span>Review activity</span><strong>Investigate unfamiliar events</strong></div><div class="kv-row"><span>Review sessions</span><strong>Revoke browsers you no longer trust</strong></div><div class="kv-row"><span>Scan reporting</span><strong>Use the CLI opt-in reporting flow</strong></div></div></section>
     </div>
+    <section id="adminCard" class="card admin-card" hidden>
+      <div class="card-head"><div><h3>Organization members</h3><p class="card-subtext">Manage active status and administrator access.</p></div></div>
+      <div id="memberList" class="members"></div>
+    </section>
   </div>
 </section>
 </main>
