@@ -1,4 +1,21 @@
+import os
+
+import pytest
 from fastapi.testclient import TestClient
+
+os.environ.setdefault("PLATFORM_JWT_SECRET", "test-secret-do-not-use-in-prod")
+os.environ.setdefault("PLATFORM_COOKIE_SECURE", "false")
+
+
+@pytest.fixture
+def client():
+    import opsec_platform.app.dependencies as deps
+    deps._engine = None
+    deps._SessionLocal = None
+    os.environ["PLATFORM_DATABASE_URL"] = "sqlite:///:memory:"
+    from opsec_platform.app.main import create_app
+    return TestClient(create_app())
+
 
 
 def register(client: TestClient, email: str, org: str = "Acme"):
