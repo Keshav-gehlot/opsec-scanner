@@ -109,3 +109,18 @@ def test_static_modes_have_no_external_font_dependency(tmp_path):
         html = _build_html(scored, mode=mode)
         assert "fonts.googleapis.com" not in html, f"mode={mode} should not fetch external fonts"
         assert "googleapis" not in html, f"mode={mode} should have zero external font references"
+
+
+def test_dashboard_escapes_untrusted_category_label(tmp_path):
+    profile = TargetProfile(name="Test")
+    finding = RawFinding(source_type=SourceType.GIT_PATCH, raw_text="test", origin="repo")
+    match = ScannedMatch(
+        finding=finding,
+        rule_id="test_rule",
+        category="<img src=x onerror=alert(1)>",
+        base_severity=9.0,
+        matched_text="test",
+    )
+    html = _build_html(score_findings([match], profile), mode="interactive")
+    assert "<img src=x onerror=alert(1)>" not in html
+    assert "&lt;img src=x onerror=alert(1)&gt;" in html
