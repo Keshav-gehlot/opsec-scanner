@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import uuid
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -7,23 +9,23 @@ from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.staticfiles import StaticFiles
 
+from opsec_platform.app import activity_routes, auth_routes, oauth_routes
 from opsec_platform.app.config import get_settings
-from opsec_platform.app.dependencies import configure_db
 from opsec_platform.app.database import init_db
-from opsec_platform.app import auth_routes, oauth_routes, activity_routes
+from opsec_platform.app.dependencies import configure_db
 from opsec_platform.app.oauth_providers import configured_providers
+
+
+APP_VERSION = "0.2.0"
 
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    app = FastAPI(title="OPSEC Scanner Platform", version="0.1.0")
+    app = FastAPI(title="OPSEC Scanner Platform", version=APP_VERSION)
 
     static_dir = Path(__file__).resolve().parents[1] / "static"
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
-    # Authlib's Starlette integration stores OAuth state/nonce in the
-    # request session during the redirect round-trip — needs signed
-    # session cookies, distinct from our own JWT session cookie.
     if settings.jwt_secret:
         app.add_middleware(
             SessionMiddleware,
@@ -35,18 +37,15 @@ def create_app() -> FastAPI:
         )
 
     configure_db()
-    from opsec_platform.app.dependencies import _engine
+    from opsec_platform.app.dependencies import _SessionLocal, _engine
     init_db(_engine)
 
-    # Optional one-time/bootstrap administrator. Credentials come only from
-    # deployment secrets; no production password is stored in source control.
-    import os
     bootstrap_email = os.environ.get("PLATFORM_BOOTSTRAP_ADMIN_EMAIL", "").strip().lower()
     bootstrap_password = os.environ.get("PLATFORM_BOOTSTRAP_ADMIN_PASSWORD", "")
     if bootstrap_email and bootstrap_password:
-        from opsec_platform.app.dependencies import _SessionLocal
         from opsec_platform.app.models import Org, User
         from opsec_platform.app.security import hash_password
+
         db = _SessionLocal()
         try:
             admin = db.query(User).filter(User.email == bootstrap_email).first()
@@ -69,49 +68,91 @@ def create_app() -> FastAPI:
         finally:
             db.close()
 
-
     app.include_router(auth_routes.router)
     app.include_router(oauth_routes.router)
     app.include_router(activity_routes.router)
 
     @app.middleware("http")
-    async def security_headers(request: Request, call_next):
+    async def platform_middleware(request: Request, call_next):
+        request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
         response = await call_next(request)
+
+        response.headers["X-Request-ID"] = request_id
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-        response.headers["Content-Security-Policy"] = "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'"
+        response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+        response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "base-uri 'self'; "
+            "form-action 'self'; "
+            "frame-ancestors 'none'; "
+            "style-src 'self'; "
+            "script-src 'self'; "
+            "img-src 'self' data:; "
+            "connect-src 'self'"
+        )
+
+        if request.url.path.startswith(("/auth/", "/activity/", "/dashboard", "/health")):
+            response.headers["Cache-Control"] = "no-store"
+
         if settings.cookie_secure:
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         return response
 
-    @app.get("/")
-    def root_redirect():
+    @app.get("/", include_in_schema=False)
+    def root():
         return FileResponse(static_dir / "login.html")
 
-    @app.get("/login")
+    @app.get("/login", include_in_schema=False)
     def login_page():
         return FileResponse(static_dir / "login.html")
 
-    @app.get("/dashboard")
+    @app.get("/dashboard", include_in_schema=False)
     def dashboard_page():
         return FileResponse(static_dir / "login.html")
 
-    @app.get("/health")
-    def health():
+    def database_check() -> str:
         from sqlalchemy import text
         from opsec_platform.app.dependencies import _SessionLocal
+
         db = _SessionLocal()
         try:
             db.execute(text("SELECT 1"))
-            database = "ok"
+            return "ok"
         except Exception:
-            database = "unavailable"
+            return "unavailable"
         finally:
             db.close()
+
+    @app.get("/health")
+    def health():
+        database = database_check()
         status_code = 200 if database == "ok" else 503
-        return JSONResponse(status_code=status_code, content={"status": "ok" if database == "ok" else "degraded", "database": database, "sso_providers_configured": configured_providers(settings)})
+        return JSONResponse(
+            status_code=status_code,
+            content={
+                "status": "ok" if database == "ok" else "degraded",
+                "version": APP_VERSION,
+                "database": database,
+                "sso_providers_configured": configured_providers(settings),
+            },
+        )
+
+    @app.get("/health/live", include_in_schema=False)
+    def liveness():
+        return {"status": "ok", "version": APP_VERSION}
+
+    @app.get("/health/ready", include_in_schema=False)
+    def readiness():
+        database = database_check()
+        status_code = 200 if database == "ok" else 503
+        return JSONResponse(
+            status_code=status_code,
+            content={"status": "ready" if database == "ok" else "not_ready", "database": database},
+        )
 
     return app
 
