@@ -9,6 +9,7 @@ password or with Google.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timezone
 
@@ -22,6 +23,7 @@ from opsec_platform.app.models import User, Session as SessionModel
 from opsec_platform.app.oauth_providers import build_oauth_registry
 
 router = APIRouter(prefix="/auth/oauth", tags=["oauth"])
+logger = logging.getLogger(__name__)
 
 SUPPORTED_PROVIDERS = {"google", "github", "microsoft", "apple"}
 
@@ -58,6 +60,7 @@ async def oauth_login(provider: str, request: Request):
     try:
         return await client.authorize_redirect(request, redirect_uri)
     except Exception as e:
+        logger.exception("OAuth redirect initialization failed for provider=%s", provider)
         # OIDC providers (google/microsoft/apple) fetch a live discovery
         # document on first use — a network hiccup or provider outage
         # here would otherwise surface as a raw unhandled exception to

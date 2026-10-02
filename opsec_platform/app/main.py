@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import uuid
 from pathlib import Path
@@ -17,6 +18,7 @@ from opsec_platform.app.oauth_providers import configured_providers
 
 
 APP_VERSION = "0.2.0"
+logger = logging.getLogger(__name__)
 
 
 def create_app() -> FastAPI:
@@ -26,10 +28,19 @@ def create_app() -> FastAPI:
     static_dir = Path(__file__).resolve().parents[1] / "static"
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
-    if settings.jwt_secret:
+    # Authlib stores OAuth state in the Starlette session. Install the
+    # middleware whenever an OAuth provider is configured, even if the
+    # deployment has not supplied PLATFORM_JWT_SECRET yet. The platform
+    # JWT remains the signing key for application sessions; this secret is
+    # only for the short-lived OAuth handshake state.
+    oauth_session_secret = settings.jwt_secret or next(
+        (cfg.client_secret for cfg in settings.oauth_providers().values() if cfg.is_configured),
+        "",
+    )
+    if oauth_session_secret:
         app.add_middleware(
             SessionMiddleware,
-            secret_key=settings.jwt_secret,
+            secret_key=oauth_session_secret,
             session_cookie="opsec_oauth",
             max_age=600,
             same_site="lax",
