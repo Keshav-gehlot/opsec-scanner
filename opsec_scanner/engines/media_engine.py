@@ -189,6 +189,7 @@ def scan_image_ocr(path: Path) -> Iterator[RawFinding]:
 
 
 
+def scan_pdf_metadata(path: Path) -> Iterator[RawFinding]:
     """
     Uses PyMuPDF to pull document metadata (author, creator tool, producer,
     and any embedded local file paths in the creator/producer strings).
@@ -215,38 +216,34 @@ def scan_image_ocr(path: Path) -> Iterator[RawFinding]:
         )
         return
 
-    meta = doc.metadata or {}
-    interesting_fields = ("author", "creator", "producer", "subject", "title")
-
-    for field in interesting_fields:
-        value = meta.get(field)
-        if value:
-            yield RawFinding(
-                source_type=SourceType.MEDIA_DOC,
-                raw_text=str(value),
-                context=f"PDF metadata field: {field}",
-                origin=str(path),
-                metadata={"field": field},
-            )
-
-    # Body text — metadata-only scanning misses secrets typed directly
-    # into the document (e.g. a leaked password pasted into a shared PDF).
     try:
-        body_text = "\n".join(page.get_text() for page in doc)
-        body_text = body_text.strip()
-        if body_text:
-            yield RawFinding(
-                source_type=SourceType.MEDIA_DOC,
-                raw_text=body_text,
-                context="PDF body text",
-                origin=str(path),
-                metadata={"field": "body_text"},
-            )
-    except Exception:
-        pass
+        meta = doc.metadata or {}
+        interesting_fields = ("author", "creator", "producer", "subject", "title")
+        for field in interesting_fields:
+            value = meta.get(field)
+            if value:
+                yield RawFinding(
+                    source_type=SourceType.MEDIA_DOC,
+                    raw_text=str(value),
+                    context=f"PDF metadata field: {field}",
+                    origin=str(path),
+                    metadata={"field": field},
+                )
 
-    doc.close()
-
+        try:
+            body_text = "\n".join(page.get_text() for page in doc).strip()
+            if body_text:
+                yield RawFinding(
+                    source_type=SourceType.MEDIA_DOC,
+                    raw_text=body_text,
+                    context="PDF body text",
+                    origin=str(path),
+                    metadata={"field": "body_text"},
+                )
+        except Exception:
+            pass
+    finally:
+        doc.close()
 
 def scan_office_document(path: Path) -> Iterator[RawFinding]:
     """
