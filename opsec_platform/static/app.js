@@ -6,7 +6,15 @@ const providerMeta={
   microsoft:{label:"Microsoft",icon:'<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#f35325" d="M2 2h9.5v9.5H2z"/><path fill="#81bc06" d="M12.5 2H22v9.5h-9.5z"/><path fill="#05a6f0" d="M2 12.5h9.5V22H2z"/><path fill="#ffba08" d="M12.5 12.5H22V22h-9.5z"/></svg>'},
   apple:{label:"Apple",icon:'<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M17.05 20.28c-.98.95-2.05.8-3.09.35-1.1-.46-2.1-.48-3.26 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.65-.84 1.54.13 2.7.73 3.5 1.8-3.18 1.9-2.43 6.07.49 7.23-.58 1.52-1.34 3.04-2.74 3.98ZM12.05 7.25C11.9 4.99 13.74 3.13 15.85 3c.29 2.61-2.36 4.55-3.8 4.25Z"/></svg>'}
 };
-function escapeHtml(value){return String(value??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",""":"&quot;","'":"&#039;"}[c]));}
+function escapeHtml(value){
+  return String(value??"").replace(/[&<>"']/g,c=>{
+    if(c==="&") return "&amp;";
+    if(c==="<") return "&lt;";
+    if(c===">") return "&gt;";
+    if(c==='"') return "&quot;";
+    return "&#039;";
+  });
+}
 function showNotice(type,message){const el=$("notice");el.className="notice show "+type;el.textContent=message;}
 function clearNotice(){const el=$("notice");el.className="notice";el.textContent="";}
 async function api(url,options={}){const response=await fetch(url,{credentials:"same-origin",...options,headers:{...(options.body?{"Content-Type":"application/json"}:{}),...(options.headers||{})}});const type=response.headers.get("content-type")||"";const body=type.includes("application/json")?await response.json():null;if(!response.ok){const detail=body?.detail;const message=Array.isArray(detail)?detail.map(x=>x.msg||"Invalid input").join(" "):(detail||"Request failed.");const error=new Error(message);error.status=response.status;throw error;}return body;}
