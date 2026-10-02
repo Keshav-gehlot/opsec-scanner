@@ -25,7 +25,14 @@ def create_app() -> FastAPI:
     # request session during the redirect round-trip — needs signed
     # session cookies, distinct from our own JWT session cookie.
     if settings.jwt_secret:
-        app.add_middleware(\n            SessionMiddleware,\n            secret_key=settings.jwt_secret,\n            session_cookie="opsec_oauth",\n            max_age=600,\n            same_site="lax",\n            https_only=settings.cookie_secure,\n        )
+        app.add_middleware(
+            SessionMiddleware,
+            secret_key=settings.jwt_secret,
+            session_cookie="opsec_oauth",
+            max_age=600,
+            same_site="lax",
+            https_only=settings.cookie_secure,
+        )
 
     configure_db()
     from opsec_platform.app.dependencies import _engine
