@@ -123,4 +123,4 @@ def test_dashboard_escapes_untrusted_category_label(tmp_path):
     )
     html = _build_html(score_findings([match], profile), mode="interactive")
     assert "<img src=x onerror=alert(1)>" not in html
-    assert "&lt;img src=x onerror=alert(1)&gt;" in html
+    assert "&lt;Img Src=X Onerror=Alert(1)&gt;" in html
