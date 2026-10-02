@@ -107,9 +107,9 @@ def _entry_html(index: int, s: ScoredFinding, mode: str) -> str:
       <div class="entry-number">{index:03d}</div>
       <div class="entry-body">
         <div class="entry-head">
-          <span class="stamp" style="--stamp-color:{color}">{s.risk_label}</span>
+          <span class="stamp" style="--stamp-color:{color}">{_esc(s.risk_label)}</span>
           <span class="entry-score">RISK {s.risk_score:.2f}</span>
-          <span class="entry-category">{category_label}</span>
+          <span class="entry-category">{_esc(category_label)}</span>
           <span class="entry-rule">{_esc(s.match.rule_id)}</span>
         </div>
 
