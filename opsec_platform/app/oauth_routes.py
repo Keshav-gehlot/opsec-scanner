@@ -56,7 +56,7 @@ async def oauth_login(provider: str, request: Request):
     settings = _require_configured_provider(provider)
     oauth = build_oauth_registry(settings)
     client = oauth.create_client(provider)
-    redirect_uri = f"{settings.base_url.rstrip('/')}/auth/oauth/{provider}/callback"
+    # Build the callback from the origin that actually served this login request.\n    # This prevents a stale PLATFORM_BASE_URL (for example, localhost left in\n    # production) from sending Google back to the wrong host. The exact URI\n    # must still be registered with the provider for each deployed origin.\n    redirect_uri = f"{str(request.base_url).rstrip('/')}/auth/oauth/{provider}/callback"
     try:
         return await client.authorize_redirect(request, redirect_uri)
     except Exception as e:

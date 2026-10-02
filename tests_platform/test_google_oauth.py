@@ -135,7 +135,7 @@ def test_google_login_has_oauth_session_without_platform_jwt(monkeypatch):
     class FakeClient:
         async def authorize_redirect(self, request, redirect_uri):
             from fastapi.responses import RedirectResponse
-            assert redirect_uri.endswith("/auth/oauth/google/callback")
+            assert redirect_uri == "http://testserver/auth/oauth/google/callback"
             assert request.session is not None
             return RedirectResponse(
                 "https://accounts.google.com/o/oauth2/auth",
