@@ -14,9 +14,6 @@ _SessionLocal = None
 
 
 def configure_db(engine=None):
-    """Call once at app startup (or per-test) to bind the dependency
-    layer to a specific engine — lets tests use an isolated in-memory
-    SQLite DB instead of the real platform.db file."""
     global _engine, _SessionLocal
     _engine = engine or make_engine()
     _SessionLocal = make_session_factory(_engine)
@@ -35,6 +32,18 @@ def get_db():
 SESSION_COOKIE_NAME = "opsec_session"
 
 
+def get_client_ip(request: Request) -> str:
+    # Vercel supplies the public client address in x-vercel-forwarded-for.
+    # This value is used only for rate-limit/audit telemetry, never as an
+    # authentication or authorization signal.
+    forwarded = (
+        request.headers.get("x-vercel-forwarded-for")
+        or request.headers.get("x-forwarded-for")
+        or ""
+    ).split(",")[0].strip()
+    return forwarded or (request.client.host if request.client else "unknown")
+
+
 def _extract_token(request: Request) -> str | None:
     auth_header = request.headers.get("Authorization")
     if auth_header and auth_header.startswith("Bearer "):
@@ -49,8 +58,8 @@ def get_current_user(request: Request, db: DBSession = Depends(get_db)) -> User:
 
     try:
         claims = decode_session_token(token)
-    except InvalidSessionToken as e:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e))
+    except InvalidSessionToken:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated.")
 
     session_row = db.query(SessionModel).filter(SessionModel.id == claims["jti"]).first()
     if session_row is None:
@@ -68,11 +77,6 @@ def get_current_user(request: Request, db: DBSession = Depends(get_db)) -> User:
 
 
 def get_current_user_optional(request: Request, db: DBSession = Depends(get_db)) -> User | None:
-    """Same as get_current_user, but returns None instead of raising when
-    there's no valid session — for routes like /auth/register that need
-    to behave differently for an unauthenticated caller (bootstrapping a
-    brand-new org) vs an authenticated one (adding a user to an org that
-    already exists), rather than unconditionally requiring a session."""
     try:
         return get_current_user(request, db)
     except HTTPException:
