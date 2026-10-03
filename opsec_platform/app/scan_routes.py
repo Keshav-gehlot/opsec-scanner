@@ -421,12 +421,13 @@ async def media_scan(
     default = files[0].filename if len(files) == 1 else f"{len(files)} uploaded files"
     scan = _new_scan(db, user, "media_upload", _clean_label(label, default or "media upload"))
     profile = svc.load_profile_data(db, user)
-    svc.submit(svc.run_media_scan, scan.id, stored, profile)
-
     ip, ua = _client_meta(request)
     log_activity(db, EventType.SCAN_STARTED, user_id=user.id, ip_address=ip, user_agent=ua,
                  detail=f"media upload: {len(stored)} file(s)")
-    return _scan_out(scan)
+    # Finish all request-side DB work before the job starts touching the scan.
+    out = _scan_out(scan)
+    svc.submit(svc.run_media_scan, scan.id, stored, profile)
+    return out
 
 
 @router.post("/git", response_model=ScanOut, status_code=status.HTTP_202_ACCEPTED)
@@ -446,11 +447,12 @@ def git_scan(
     label = _clean_label(payload.label, url.split("://", 1)[1])
     scan = _new_scan(db, user, "git_url", label)
     profile = svc.load_profile_data(db, user)
-    svc.submit(svc.run_git_scan, scan.id, url, depth, profile)
-
     ip, ua = _client_meta(request)
     log_activity(db, EventType.SCAN_STARTED, user_id=user.id, ip_address=ip, user_agent=ua, detail=f"git: {url}")
-    return _scan_out(scan)
+    # Finish all request-side DB work before the job starts touching the scan.
+    out = _scan_out(scan)
+    svc.submit(svc.run_git_scan, scan.id, url, depth, profile)
+    return out
 
 
 # --------------------------------------------------------------------------

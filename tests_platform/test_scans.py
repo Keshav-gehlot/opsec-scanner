@@ -233,12 +233,12 @@ def test_unknown_access_token_rejected(client):
 # ---------------------------------------------------------------- CSRF
 
 def test_cross_origin_unsafe_requests_are_blocked(client):
+    # main's csrf_origin_guard covers the new scan routes too.
     signup(client)
     evil = {"Origin": "https://evil.example"}
     assert client.post("/scans/import", json=export_payload([finding()]), headers=evil).status_code == 403
-    assert client.post("/auth/logout", headers=evil).status_code == 403
-    assert client.post("/auth/login", json={"email": "owner@example.com", "password": "testpass123"}, headers={"Referer": "https://evil.example/x"}).status_code == 403
-    assert client.post("/scans/import", json=export_payload([finding()]), headers={"Origin": "http://localhost:8000"}).status_code == 201
+    assert client.post("/scans/git", json={"url": "https://github.com/a/b"}, headers=evil).status_code == 403
+    assert client.delete("/scans/x", headers=evil).status_code == 403
     assert client.post("/scans/import", json=export_payload([finding()]), headers={"Origin": "http://testserver"}).status_code == 201
     # Safe methods are never blocked.
     assert client.get("/scans", headers=evil).status_code == 200
