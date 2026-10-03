@@ -80,6 +80,11 @@ jobs:
           PLATFORM_COOKIE_SECURE: "false"
         run: pytest tests_platform/ -v
 
+      - name: Audit dependencies for known vulnerabilities
+        run: |
+          pip install pip-audit
+          pip-audit --skip-editable
+
 
   platform-frontend-test:
     runs-on: ubuntu-latest

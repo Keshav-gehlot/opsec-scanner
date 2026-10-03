@@ -78,44 +78,49 @@ def create_app() -> FastAPI:
     from opsec_platform.app.dependencies import _SessionLocal, _engine
     init_db(_engine)
 
-    bootstrap_email = os.environ.get("PLATFORM_BOOTSTRAP_ADMIN_EMAIL", "").strip().lower()
-    bootstrap_password = os.environ.get("PLATFORM_BOOTSTRAP_ADMIN_PASSWORD", "")
-    if bootstrap_email and bootstrap_password:
-        from opsec_platform.app.models import Org, User
-        from opsec_platform.app.security import hash_password
+    from opsec_platform.app.bootstrap import run_bootstrap_admin
 
-        db = _SessionLocal()
-        try:
-            admin = db.query(User).filter(User.email == bootstrap_email).first()
-            if admin is None:
-                org = db.query(Org).filter(Org.name == "OPSEC Scanner").first()
-                if org is None:
-                    org = Org(name="OPSEC Scanner")
-                    db.add(org)
-                    db.flush()
-                db.add(User(
-                    org_id=org.id,
-                    email=bootstrap_email,
-                    display_name="Administrator",
-                    hashed_password=hash_password(bootstrap_password),
-                    auth_provider="local",
-                    is_org_admin=True,
-                    is_active=True,
-                ))
-                db.commit()
-            elif not admin.is_org_admin:
-                admin.is_org_admin = True
-                db.commit()
-        finally:
-            db.close()
+    run_bootstrap_admin(
+        _SessionLocal,
+        os.environ.get("PLATFORM_BOOTSTRAP_ADMIN_EMAIL", ""),
+        os.environ.get("PLATFORM_BOOTSTRAP_ADMIN_PASSWORD", ""),
+        secure=settings.cookie_secure,
+    )
 
     app.include_router(auth_routes.router)
     app.include_router(oauth_routes.router)
     app.include_router(activity_routes.router)
 
+    trusted_origins = {o.lower() for o in settings.allowed_origins}
+    if settings.base_url_explicit:
+        trusted_origins.add(settings.base_url.rstrip("/").lower())
+
+    def origin_allowed(request: Request, origin: str) -> bool:
+        origin = origin.rstrip("/").lower()
+        if origin in trusted_origins:
+            return True
+        # Same-origin: the browser's Origin host equals the Host it sent the
+        # request to (scheme may differ behind the TLS-terminating proxy).
+        host = request.headers.get("host", "").lower()
+        return bool(host) and origin.split("://", 1)[-1] == host
+
+    @app.middleware("http")
+    async def csrf_origin_guard(request: Request, call_next):
+        # Defense in depth on top of SameSite=Lax cookies: refuse state-changing
+        # browser requests that a foreign site initiated. Requests without an
+        # Origin header (CLI/bearer-token clients) are unaffected. Provider
+        # form_post callbacks (Apple) legitimately arrive cross-site.
+        if request.method not in ("GET", "HEAD", "OPTIONS"):
+            origin = request.headers.get("origin")
+            is_oauth_callback = request.url.path.startswith("/auth/oauth/") and request.url.path.endswith("/callback")
+            if origin and not is_oauth_callback and (origin == "null" or not origin_allowed(request, origin)):
+                return JSONResponse(status_code=403, content={"detail": "Cross-site request refused."})
+        return await call_next(request)
+
     @app.middleware("http")
     async def platform_middleware(request: Request, call_next):
-        request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+        supplied_id = request.headers.get("X-Request-ID", "")
+        request_id = supplied_id if 0 < len(supplied_id) <= 128 and supplied_id.isprintable() else str(uuid.uuid4())
         response = await call_next(request)
 
         response.headers["X-Request-ID"] = request_id

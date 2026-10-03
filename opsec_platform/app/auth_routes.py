@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from sqlalchemy.orm import Session as DBSession
 
 from opsec_platform.app.activity import EventType, log_activity
+from opsec_platform.app.client_ip import client_meta
 from opsec_platform.app.dependencies import SESSION_COOKIE_NAME, _extract_token, get_current_user, get_current_user_optional, get_db
 from opsec_platform.app.identities import complete_pending_link
 from opsec_platform.app.models import Org, Session as SessionModel, User
@@ -73,7 +74,7 @@ class SessionOut(BaseModel):
 
 
 def _client_meta(request: Request) -> tuple[str, str]:
-    return request.client.host if request.client else "unknown", request.headers.get("user-agent", "unknown")
+    return client_meta(request)
 
 
 def _issue_session(db: DBSession, user: User, request: Request, response: Response) -> None:
@@ -104,9 +105,21 @@ def _current_session_id(request: Request) -> str:
 
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 def register(payload: RegisterRequest, request: Request, db: DBSession = Depends(get_db), caller: User | None = Depends(get_current_user_optional)):
+    from opsec_platform.app.activity import is_registration_rate_limited
+
+    ip, ua = _client_meta(request)
+
+    def reject(code: int, detail: str, reason: str) -> HTTPException:
+        log_activity(db, EventType.REGISTRATION_REJECTED, ip_address=ip, user_agent=ua, detail=reason)
+        return HTTPException(status_code=code, detail=detail)
+
+    if is_registration_rate_limited(db, ip):
+        log_activity(db, EventType.REGISTRATION_RATE_LIMITED, ip_address=ip, user_agent=ua)
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many registration attempts. Try again later.")
+
     existing_user = db.query(User).filter(User.email == str(payload.email).lower()).first()
     if existing_user is not None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="An account with this email already exists.")
+        raise reject(status.HTTP_409_CONFLICT, "An account with this email already exists.", "email taken")
 
     org = db.query(Org).filter(Org.name == payload.org_name).first()
     if org is None:
@@ -116,9 +129,9 @@ def register(payload: RegisterRequest, request: Request, db: DBSession = Depends
         is_admin = True
     else:
         if caller is None:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required to add a user to an existing organization. Log in as an admin of that org first.")
+            raise reject(status.HTTP_401_UNAUTHORIZED, "Authentication required to add a user to an existing organization. Log in as an admin of that org first.", "existing org, unauthenticated")
         if not caller.is_org_admin or caller.org_id != org.id:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only an admin of this organization can add new users to it.")
+            raise reject(status.HTTP_403_FORBIDDEN, "Only an admin of this organization can add new users to it.", "existing org, not admin")
         is_admin = False
 
     user = User(
@@ -132,7 +145,6 @@ def register(payload: RegisterRequest, request: Request, db: DBSession = Depends
     db.add(user)
     db.commit()
     db.refresh(user)
-    ip, ua = _client_meta(request)
     log_activity(db, EventType.USER_CREATED, user_id=user.id, ip_address=ip, user_agent=ua, detail=f"org={org.name}, admin={is_admin}")
     return user
 

@@ -67,7 +67,9 @@ def scan_image_exif(path: Path) -> Iterator[RawFinding]:
     """
     try:
         result = subprocess.run(
-            ["exiftool", "-json", "-n", str(path)],
+            # Absolute path: a file name beginning with "-" must never be
+            # parsed by exiftool as an option.
+            ["exiftool", "-json", "-n", str(Path(path).resolve())],
             capture_output=True,
             text=True,
             timeout=15,

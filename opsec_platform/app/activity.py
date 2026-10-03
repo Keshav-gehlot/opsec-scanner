@@ -18,12 +18,15 @@ class EventType:
     OAUTH_LINKED = "oauth_linked"
     LOGOUT = "logout"
     USER_CREATED = "user_created"
+    REGISTRATION_REJECTED = "registration_rejected"
+    REGISTRATION_RATE_LIMITED = "registration_rate_limited"
     MEMBER_UPDATED = "member_updated"
     SCAN_REPORTED = "scan_reported"
 
     ALL = {
         LOGIN_SUCCESS, LOGIN_FAILED, LOGIN_RATE_LIMITED, OAUTH_LOGIN_SUCCESS, OAUTH_LOGIN_FAILED,
-        OAUTH_LINK_REQUIRED, OAUTH_LINKED, LOGOUT, USER_CREATED, MEMBER_UPDATED, SCAN_REPORTED,
+        OAUTH_LINK_REQUIRED, OAUTH_LINKED, LOGOUT, USER_CREATED, REGISTRATION_REJECTED,
+        REGISTRATION_RATE_LIMITED, MEMBER_UPDATED, SCAN_REPORTED,
     }
 
 
@@ -63,7 +66,10 @@ def is_login_rate_limited(db: DBSession, email: str, ip_address: str | None = No
     if user is not None:
         email_count = email_query.filter(ActivityLog.user_id == user.id).count()
     else:
-        email_count = email_query.filter(ActivityLog.detail.like(f"email={email}%")).count()
+        # Escape LIKE wildcards: "_" is legal in email addresses and would
+        # otherwise match other addresses' failures.
+        escaped = email.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        email_count = email_query.filter(ActivityLog.detail.like(f"email={escaped} %", escape="\\")).count()
 
     if email_count >= settings.login_rate_limit_attempts:
         return True
@@ -78,3 +84,22 @@ def is_login_rate_limited(db: DBSession, email: str, ip_address: str | None = No
             return True
 
     return False
+
+
+def is_registration_rate_limited(db: DBSession, ip_address: str | None) -> bool:
+    """Caps registration attempts (successful or rejected) per client IP.
+
+    /auth/register answers "already exists" for a taken email, so without a
+    cap it is an unthrottled account-enumeration oracle and a free way to
+    create unlimited organizations.
+    """
+    if not ip_address:
+        return False
+    settings = get_settings()
+    window_start = datetime.now(timezone.utc) - timedelta(minutes=settings.register_rate_limit_window_minutes)
+    attempts = db.query(ActivityLog).filter(
+        ActivityLog.event_type.in_([EventType.USER_CREATED, EventType.REGISTRATION_REJECTED]),
+        ActivityLog.timestamp >= window_start,
+        ActivityLog.ip_address == ip_address,
+    ).count()
+    return attempts >= settings.register_rate_limit_attempts

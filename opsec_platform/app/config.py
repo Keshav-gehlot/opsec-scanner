@@ -43,6 +43,8 @@ class Settings:
     login_rate_limit_window_minutes: int = field(default_factory=lambda: int(_get("PLATFORM_LOGIN_RATE_LIMIT_WINDOW_MINUTES", "15")))
     login_ip_rate_limit_attempts: int = field(default_factory=lambda: int(_get("PLATFORM_LOGIN_IP_RATE_LIMIT_ATTEMPTS", "20")))
     login_ip_rate_limit_window_minutes: int = field(default_factory=lambda: int(_get("PLATFORM_LOGIN_IP_RATE_LIMIT_WINDOW_MINUTES", "15")))
+    register_rate_limit_attempts: int = field(default_factory=lambda: int(_get("PLATFORM_REGISTER_RATE_LIMIT_ATTEMPTS", "10")))
+    register_rate_limit_window_minutes: int = field(default_factory=lambda: int(_get("PLATFORM_REGISTER_RATE_LIMIT_WINDOW_MINUTES", "60")))
 
     # Explicit app configuration wins so local/test fixtures can force SQLite.
     # Render/Vercel's conventional DATABASE_URL remains the production fallback.
