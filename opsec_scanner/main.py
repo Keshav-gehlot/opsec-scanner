@@ -37,7 +37,7 @@ from opsec_scanner.output.pdf_export import export_pdf
 from opsec_scanner.output.sarif_export import export_sarif
 from opsec_scanner.output.history_store import save_snapshot
 from opsec_scanner.output.ops_center import render_ops_center
-from opsec_scanner.output.platform_client import report_scan_activity, ActivityReportError
+from opsec_scanner.output.platform_client import report_scan_activity, upload_findings, ActivityReportError
 
 console = Console()
 
@@ -98,6 +98,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Platform base URL (e.g. https://platform.example.com) to report this scan's summary to. "
              "Opt-in only — the CLI never does this unless you pass this flag. Requires --report-activity-token "
              "or the OPSEC_PLATFORM_TOKEN environment variable, obtained by logging into the platform separately.",
+    )
+    parser.add_argument(
+        "--upload-findings",
+        action="store_true",
+        help="With --report-activity: also upload this scan's findings (always redacted — values are never sent) "
+             "to the platform's web workspace so they appear in the Operations Center and findings explorer.",
     )
     parser.add_argument(
         "--report-activity-token",
@@ -274,6 +280,16 @@ def cli() -> None:
                 # the local reports are the CLI's real job and must still
                 # get written even if the platform is unreachable.
                 console.print(f"[yellow]Warning:[/yellow] Could not report activity to platform: {e}")
+            if args.upload_findings:
+                try:
+                    uploaded = upload_findings(args.report_activity, token, scored, label, scan_stats=combined_stats)
+                    console.print(
+                        f"[green]Redacted findings uploaded:[/green] {args.report_activity.rstrip('/')}/dashboard#/scan/{uploaded.get('id')}"
+                    )
+                except ActivityReportError as e:
+                    console.print(f"[yellow]Warning:[/yellow] Could not upload findings to platform: {e}")
+    elif args.upload_findings:
+        console.print("[yellow]Warning:[/yellow] --upload-findings needs --report-activity <platform URL>. Skipping upload.")
 
     render_dashboard(scored, args.output, scan_stats=combined_stats)
     console.print(f"[green]HTML report written to:[/green] {args.output}")

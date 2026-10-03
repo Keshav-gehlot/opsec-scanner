@@ -26,7 +26,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import (
-    Column, String, Boolean, DateTime, ForeignKey, Text, Integer, UniqueConstraint
+    Column, String, Boolean, DateTime, Float, ForeignKey, Text, Integer, UniqueConstraint
 )
 from sqlalchemy.orm import declarative_base, relationship
 
@@ -82,6 +82,10 @@ class User(Base):
 
     org = relationship("Org", back_populates="users")
     sessions = relationship("Session", back_populates="user")
+
+    @property
+    def org_name(self) -> str | None:
+        return self.org.name if self.org is not None else None
     identities = relationship("UserIdentity", back_populates="user")
 
 
@@ -137,3 +141,91 @@ class ActivityLog(Base):
     ip_address = Column(String, nullable=True)
     user_agent = Column(String, nullable=True)
     detail = Column(Text, nullable=True)  # short human-readable detail, e.g. "3 CRITICAL findings"
+
+
+class ApiToken(Base):
+    """Personal access token for non-browser clients (the CLI's
+    --report-activity / --upload-findings). Only a SHA-256 hash of the
+    token is stored; the plaintext is shown once at creation. Tokens are
+    accepted only by the scan-ingest and activity-report APIs, never by
+    account, session, or organization management routes."""
+
+    __tablename__ = "api_tokens"
+
+    id = Column(String, primary_key=True, default=_uuid)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String, nullable=False)
+    token_hash = Column(String, nullable=False, unique=True, index=True)
+    prefix = Column(String, nullable=False)  # first characters, safe to display
+    created_at = Column(DateTime(timezone=True), default=_now, nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+    revoked = Column(Boolean, nullable=False, default=False)
+
+
+class IdentityProfile(Base):
+    """The web equivalent of the CLI's target_profile.yaml: the identity
+    anchors a user's scans are correlated against. Stored as JSON text so
+    the shape can follow opsec_scanner.config.TargetProfile."""
+
+    __tablename__ = "identity_profiles"
+
+    user_id = Column(String, ForeignKey("users.id"), primary_key=True)
+    data = Column(Text, nullable=False, default="{}")
+    updated_at = Column(DateTime(timezone=True), default=_now, nullable=False)
+
+
+class Scan(Base):
+    """One scan run: a CLI result uploaded to the platform, or a scan the
+    platform executed itself (uploaded media files / public git repo).
+
+    Raw secret values are never persisted. Findings keep a redacted
+    preview plus a keyed fingerprint so scans of the same target can be
+    diffed (new / still open / resolved) without storing the secret."""
+
+    __tablename__ = "scans"
+
+    id = Column(String, primary_key=True, default=_uuid)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    org_id = Column(String, ForeignKey("orgs.id"), nullable=True, index=True)
+    source = Column(String, nullable=False)          # cli_upload | json_import | media_upload | git_url
+    target_label = Column(String, nullable=False)
+    status = Column(String, nullable=False, default="queued")  # queued | running | completed | failed
+    error = Column(Text, nullable=True)
+    stats = Column(Text, nullable=True)              # JSON object
+    total_findings = Column(Integer, nullable=False, default=0)
+    critical_count = Column(Integer, nullable=False, default=0)
+    high_count = Column(Integer, nullable=False, default=0)
+    medium_count = Column(Integer, nullable=False, default=0)
+    low_count = Column(Integer, nullable=False, default=0)
+    max_risk_score = Column(Float, nullable=False, default=0.0)
+    created_at = Column(DateTime(timezone=True), default=_now, nullable=False, index=True)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    findings = relationship("Finding", back_populates="scan", cascade="all, delete-orphan")
+
+
+class Finding(Base):
+    __tablename__ = "findings"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    scan_id = Column(String, ForeignKey("scans.id", ondelete="CASCADE"), nullable=False, index=True)
+    fingerprint = Column(String, nullable=False, index=True)
+    risk_score = Column(Float, nullable=False)
+    risk_label = Column(String, nullable=False)
+    rule_id = Column(String, nullable=False)
+    category = Column(String, nullable=False)
+    preview = Column(String, nullable=False)          # redacted, never the full value
+    matched_length = Column(Integer, nullable=False, default=0)
+    base_severity = Column(Float, nullable=True)
+    entropy_score = Column(Float, nullable=True)
+    identity_confidence = Column(Float, nullable=True)
+    identity_reason = Column(Text, nullable=True)
+    exposure_level = Column(String, nullable=True)
+    source_type = Column(String, nullable=True)
+    origin = Column(Text, nullable=True)
+    context = Column(Text, nullable=True)
+    occurrence_count = Column(Integer, nullable=False, default=1)
+
+    scan = relationship("Scan", back_populates="findings")

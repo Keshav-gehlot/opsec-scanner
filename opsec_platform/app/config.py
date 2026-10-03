@@ -22,6 +22,16 @@ def _get(name: str, default: str = "") -> str:
     return os.environ.get(name, default)
 
 
+def _int(name: str, default: int) -> int:
+    """Positive integer setting; a malformed or non-positive value falls
+    back to the default rather than crashing startup."""
+    try:
+        value = int(os.environ.get(name, "").strip() or default)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
 @dataclass
 class OAuthProviderConfig:
     name: str
@@ -65,6 +75,25 @@ class Settings:
     base_url_explicit: bool = field(default_factory=lambda: bool(_get("PLATFORM_BASE_URL").strip()))
     cookie_secure: bool = field(default_factory=lambda: _get("PLATFORM_COOKIE_SECURE", "true").lower() != "false")
     allowed_origins: tuple[str, ...] = field(default_factory=lambda: tuple(o.strip().rstrip("/") for o in _get("PLATFORM_ALLOWED_ORIGINS").split(",") if o.strip()))
+
+    # Web workspace scanning. Server-side scans (uploaded media, public git
+    # URLs) can be switched off entirely; JSON/CLI result imports keep working.
+    web_scans_enabled: bool = field(default_factory=lambda: _get("PLATFORM_WEB_SCANS_ENABLED", "true").lower() != "false")
+    scan_max_concurrent: int = field(default_factory=lambda: _int("PLATFORM_SCAN_MAX_CONCURRENT", 2))
+    scan_daily_limit: int = field(default_factory=lambda: _int("PLATFORM_SCAN_DAILY_LIMIT", 30))
+    scan_media_max_files: int = field(default_factory=lambda: _int("PLATFORM_SCAN_MEDIA_MAX_FILES", 20))
+    scan_media_max_file_mb: int = field(default_factory=lambda: _int("PLATFORM_SCAN_MEDIA_MAX_FILE_MB", 10))
+    scan_media_max_total_mb: int = field(default_factory=lambda: _int("PLATFORM_SCAN_MEDIA_MAX_TOTAL_MB", 25))
+    scan_import_max_mb: int = field(default_factory=lambda: _int("PLATFORM_SCAN_IMPORT_MAX_MB", 10))
+    scan_import_max_findings: int = field(default_factory=lambda: _int("PLATFORM_SCAN_IMPORT_MAX_FINDINGS", 10000))
+    scan_git_default_depth: int = field(default_factory=lambda: _int("PLATFORM_SCAN_GIT_DEFAULT_DEPTH", 200))
+    scan_git_max_depth: int = field(default_factory=lambda: _int("PLATFORM_SCAN_GIT_MAX_DEPTH", 1000))
+    scan_git_max_mb: int = field(default_factory=lambda: _int("PLATFORM_SCAN_GIT_MAX_MB", 200))
+    scan_git_timeout_seconds: int = field(default_factory=lambda: _int("PLATFORM_SCAN_GIT_TIMEOUT_SECONDS", 120))
+    scan_git_hosts: tuple[str, ...] = field(default_factory=lambda: tuple(
+        h.strip().lower() for h in _get("PLATFORM_SCAN_GIT_HOSTS", "github.com,gitlab.com,bitbucket.org,codeberg.org").split(",") if h.strip()
+    ))
+    api_token_max_days: int = field(default_factory=lambda: _int("PLATFORM_API_TOKEN_MAX_DAYS", 365))
 
     google: OAuthProviderConfig = field(default_factory=lambda: OAuthProviderConfig(
         "google", _get("GOOGLE_CLIENT_ID"), _get("GOOGLE_CLIENT_SECRET")))

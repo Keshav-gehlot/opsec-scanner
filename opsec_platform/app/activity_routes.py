@@ -5,7 +5,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session as DBSession
 
-from opsec_platform.app.dependencies import get_db, get_current_user
+from opsec_platform.app.dependencies import get_api_user, get_db, get_current_user
 from opsec_platform.app.models import ActivityLog, User
 
 router = APIRouter(prefix="/activity", tags=["activity"])
@@ -46,7 +46,7 @@ def my_activity(
 def report_scan(
     detail: str = Query(min_length=1, max_length=2000),
     db: DBSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_api_user),
 ):
     """
     Opt-in endpoint for the CLI's --report-activity flag. The scanner

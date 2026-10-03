@@ -22,7 +22,7 @@
 | **Detection** | Patterns, entropy, allowlists, identity correlation |
 | **Risk** | Severity × identity confidence × exposure |
 | **Reporting** | HTML, JSON, SARIF, PDF, Operations Center, web explorer |
-| **Optional platform** | FastAPI auth, sessions, SSO wiring, activity tracking |
+| **Optional platform** | Web workspace (Operations Center, scans, findings explorer), FastAPI auth, sessions, SSO, activity tracking |
 
 ## Documentation map
 
@@ -44,6 +44,7 @@ The repository is continuously tested in GitHub Actions. The optional platform i
 | --- | --- |
 | CLI scanner | Local-first scanner with HTML, JSON, SARIF and optional PDF output |
 | Platform auth | Password auth, revocable sessions, activity logging, OAuth wiring |
+| Web workspace | Public-repo and media scans, CLI result uploads, findings explorer, scan diffs, exports |
 | CI | GitHub Actions matrix for Python 3.10–3.12 plus platform/web UI checks |
 | Vercel | Platform entrypoint configured for production deployment |
 | Render | Dedicated API service + PostgreSQL |
@@ -56,7 +57,7 @@ Self-audit OPSEC scanner for your own Git repositories and media files. It finds
 The project has two deliberately separate parts:
 
 - **CLI scanner:** local-first. It does not contact external services unless you explicitly enable activity reporting.
-- **Optional platform:** FastAPI authentication, SSO wiring, session management, and activity tracking under `opsec_platform/`.
+- **Optional platform:** a web workspace (server-side scans of public repos and uploaded media, CLI result uploads, Operations Center, findings explorer) plus FastAPI authentication, SSO, session management, and activity tracking under `opsec_platform/`.
 
 ## Current status
 
@@ -281,6 +282,7 @@ opsec-scan \
 | `--max-patch-commits N` | Maximum commits to patch-diff; `0` means unlimited |
 | `--public-repo` | Treat scan target as publicly exposed |
 | `--report-activity URL` | Optional platform endpoint for posting a scan summary |
+| `--upload-findings` | With `--report-activity`: upload redacted findings to the web workspace |
 | `--report-activity-token TOKEN` | Token used with `--report-activity` |
 
 ## Project configuration
@@ -321,8 +323,14 @@ It provides:
 - signed JWT session tokens with server-side revocation;
 - activity events for login, logout, failed login, registration, and reported scans;
 - OAuth/OIDC wiring for Google, GitHub, Microsoft, and Apple;
-- a simple login/register/dashboard browser UI;
-- a health endpoint at `/health`.
+- a web workspace at `/dashboard`: Operations Center, scan history, findings explorer with
+  new/resolved diffs and JSON/CSV/SARIF export, server-side scans of public git repositories
+  and uploaded images/PDF/Office files, CLI result imports, identity profile, CLI access tokens,
+  sessions and organization management (raw matched values are never stored);
+- origin-checked CSRF protection for state-changing requests;
+- a health endpoint at `/health` (includes whether the detection rules loaded).
+
+See `opsec_platform/README.md` for the workspace, its API and its safeguards.
 
 The CLI remains fully functional without this backend.
 

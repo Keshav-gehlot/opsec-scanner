@@ -152,3 +152,40 @@ def test_report_scan_activity_allows_local_http_for_development(live_platform_ur
     token = _get_token(live_platform_url)
     result = report_scan_activity(live_platform_url, token, _scored_findings(), "local-test")
     assert "id" in result
+
+
+def _create_access_token(base_url, session_token):
+    import httpx
+    with httpx.Client(base_url=base_url, cookies={"opsec_session": session_token}) as client:
+        r = client.post("/auth/tokens", json={"name": "cli test"})
+        assert r.status_code == 201, r.text
+        return r.json()["token"]
+
+
+def test_upload_findings_creates_redacted_scan_in_workspace(live_platform_url):
+    import httpx
+    from opsec_scanner.output.platform_client import upload_findings
+
+    session = _get_token(live_platform_url)
+    token = _create_access_token(live_platform_url, session)
+    scan = upload_findings(live_platform_url, token, _scored_findings(), "cli-repo", scan_stats={"commits_scanned": 3})
+    assert scan["status"] == "completed" and scan["source"] == "cli_upload"
+    assert scan["target_label"] == "cli-repo" and scan["total_findings"] == 2
+
+    with httpx.Client(base_url=live_platform_url, headers={"Authorization": f"Bearer {token}"}) as client:
+        findings = client.get(f"/scans/{scan['id']}/findings").json()
+    assert findings["total"] == 2
+    assert "AKIATEST0000000000A" not in str(findings)
+
+
+def test_upload_payload_never_contains_matched_values():
+    from opsec_scanner.output.platform_client import build_upload_payload
+    payload = build_upload_payload(_scored_findings(), "x")
+    assert "AKIATEST0000000000A" not in str(payload) and "db.internal" not in str(payload)
+    assert payload["redacted"] is True
+
+
+def test_upload_findings_rejects_plain_http():
+    from opsec_scanner.output.platform_client import upload_findings
+    with pytest.raises(ActivityReportError, match="plain HTTP"):
+        upload_findings("http://platform.example.invalid", "t", _scored_findings(), "x")

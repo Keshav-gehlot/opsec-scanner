@@ -23,8 +23,22 @@ import yaml
 from opsec_scanner.analysis.entropy import calculate_entropy, is_high_entropy
 from opsec_scanner.models import RawFinding
 
-DEFAULT_RULES_PATH = Path(__file__).parent.parent.parent / "rules" / "patterns.yaml"
-DEFAULT_ALLOWLIST_PATH = Path(__file__).parent.parent.parent / "rules" / "allowlist.yaml"
+def _rules_dir() -> Path:
+    """The repo-level rules/ directory. Found next to the package for a
+    source checkout or editable install; a regular (non-editable) install
+    copies only the package into site-packages, so fall back to ./rules in
+    the working directory (how hosted deployments run from the checkout)."""
+    beside_package = Path(__file__).parent.parent.parent / "rules"
+    if (beside_package / "patterns.yaml").exists():
+        return beside_package
+    in_cwd = Path.cwd() / "rules"
+    if (in_cwd / "patterns.yaml").exists():
+        return in_cwd
+    return beside_package
+
+
+DEFAULT_RULES_PATH = _rules_dir() / "patterns.yaml"
+DEFAULT_ALLOWLIST_PATH = _rules_dir() / "allowlist.yaml"
 
 
 @dataclass
