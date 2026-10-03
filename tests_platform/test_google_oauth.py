@@ -17,7 +17,7 @@ def oauth_client(monkeypatch):
     monkeypatch.setenv("PLATFORM_JWT_SECRET", "test-secret-do-not-use-in-prod")
     monkeypatch.setenv("PLATFORM_COOKIE_SECURE", "false")
     monkeypatch.setenv("PLATFORM_DATABASE_URL", "sqlite:///:memory:")
-    monkeypatch.setenv("PLATFORM_BASE_URL", "https://opsec-scanner-seven.vercel.app")
+    monkeypatch.delenv("PLATFORM_BASE_URL", raising=False)
     monkeypatch.setenv("GOOGLE_CLIENT_ID", "test-client-id.apps.googleusercontent.com")
     monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "test-client-secret")
 
