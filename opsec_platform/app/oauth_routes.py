@@ -59,9 +59,13 @@ async def oauth_login(provider: str, request: Request):
     # Vercel terminates TLS before the FastAPI runtime, so request.base_url
     # can reflect the internal localhost origin. Prefer the forwarded origin
     # supplied by the platform proxy and fall back to request.base_url locally.
+    configured_base_url = get_settings().base_url.rstrip("/")
+    explicit_base_url = bool(__import__("os").environ.get("PLATFORM_BASE_URL", "").strip())
     forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip()
     forwarded_host = request.headers.get("x-forwarded-host", "").split(",")[0].strip()
-    if forwarded_proto in {"http", "https"} and forwarded_host:
+    if explicit_base_url:
+        origin = configured_base_url
+    elif forwarded_proto in {"http", "https"} and forwarded_host:
         origin = f"{forwarded_proto}://{forwarded_host}"
     else:
         origin = str(request.base_url).rstrip("/")
