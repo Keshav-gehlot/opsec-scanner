@@ -86,6 +86,9 @@ def create_app() -> FastAPI:
                     is_active=True,
                 ))
                 db.commit()
+            elif not admin.is_org_admin:
+                admin.is_org_admin = True
+                db.commit()
         finally:
             db.close()
 
