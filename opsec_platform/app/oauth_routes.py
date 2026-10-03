@@ -18,6 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DBSession
 
 from opsec_platform.app.activity import log_activity, EventType
+from opsec_platform.app.client_ip import client_meta
 from opsec_platform.app.config import get_settings
 from opsec_platform.app.dependencies import SESSION_COOKIE_NAME
 from opsec_platform.app.identities import PENDING_LINK_KEY, find_user_by_identity
@@ -31,7 +32,7 @@ SUPPORTED_PROVIDERS = {"google", "github", "microsoft", "apple"}
 
 
 def _client_meta(request: Request) -> tuple[str, str]:
-    return request.client.host if request.client else "unknown", request.headers.get("user-agent", "unknown")
+    return client_meta(request)
 
 
 def _require_configured_provider(provider: str):

@@ -34,7 +34,9 @@ def export_pdf(
 ) -> None:
     try:
         from weasyprint import HTML
-    except ImportError as e:
+    except (ImportError, OSError) as e:
+        # OSError: the Python package is installed but its system libraries
+        # (pango/gobject) are not, e.g. on Windows without GTK.
         raise RuntimeError(
             "PDF export requires WeasyPrint. Install with: pip install weasyprint "
             "(also requires system libs: pango, cairo, gdk-pixbuf — see WeasyPrint docs "

@@ -245,6 +245,18 @@ def scan_patches(
                             )
 
 
+def validate_ref(ref: str) -> str:
+    """Reject refs git would parse as command-line options.
+
+    The ref is interpolated into a `<ref>..HEAD` revision argument, so a value
+    such as `--output=/some/file` would be read by git as an option rather
+    than a revision.
+    """
+    if not ref or ref.startswith("-") or any(ch in ref for ch in "\x00\n\r") or ref != ref.strip():
+        raise ValueError(f"Invalid git ref: {ref!r}")
+    return ref
+
+
 def scan_commits_in_range(repo: Repo, origin: str, since_ref: str) -> Iterator[RawFinding]:
     """
     Incremental scan for pre-commit/pre-push hook use: only walks commits
@@ -257,6 +269,7 @@ def scan_commits_in_range(repo: Repo, origin: str, since_ref: str) -> Iterator[R
     is skipped here since it's a full-history concern, not specific to
     what's being pushed right now.
     """
+    validate_ref(since_ref)
     try:
         commits = list(repo.iter_commits(f"{since_ref}..HEAD"))
     except Exception as e:
@@ -326,6 +339,7 @@ def scan_git_repo(
     findings: list[RawFinding] = []
 
     if since_ref:
+        validate_ref(since_ref)
         range_findings = list(scan_commits_in_range(repo, origin, since_ref))
         findings.extend(range_findings)
         if stats is not None:
