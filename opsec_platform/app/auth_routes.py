@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from sqlalchemy.orm import Session as DBSession
 
 from opsec_platform.app.activity import EventType, log_activity
-from opsec_platform.app.dependencies import SESSION_COOKIE_NAME, _extract_token, get_current_user, get_current_user_optional, get_db
+from opsec_platform.app.dependencies import SESSION_COOKIE_NAME, _extract_token, get_client_ip, get_current_user, get_current_user_optional, get_db
 from opsec_platform.app.models import Org, Session as SessionModel, User
 from opsec_platform.app.security import create_session_token, decode_session_token, hash_password, verify_password
 
@@ -72,7 +72,7 @@ class SessionOut(BaseModel):
 
 
 def _client_meta(request: Request) -> tuple[str, str]:
-    return request.client.host if request.client else "unknown", request.headers.get("user-agent", "unknown")
+    return get_client_ip(request), request.headers.get("user-agent", "unknown")
 
 
 def _issue_session(db: DBSession, user: User, request: Request, response: Response) -> None:
