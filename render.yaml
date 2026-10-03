@@ -39,3 +39,11 @@ services:
         value: "true"
       - key: PLATFORM_SCAN_MAX_CONCURRENT
         value: "1"
+      - key: PLATFORM_LOG_FORMAT
+        value: json
+      - key: PLATFORM_GITHUB_TOKEN
+        sync: false
+      - key: PLATFORM_HIBP_API_KEY
+        sync: false
+      - key: PLATFORM_SHODAN_API_KEY
+        sync: false

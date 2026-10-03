@@ -65,7 +65,7 @@ function counts(s) {
   const parts = [["c", s.critical_count ?? s.critical], ["h", s.high_count ?? s.high], ["m", s.medium_count ?? s.medium], ["l", s.low_count ?? s.low]];
   return '<span class="counts" aria-label="Critical, high, medium, low">' + parts.map(([k, v]) => '<span class="count ' + k + (v ? "" : " zero") + '">' + (v ?? 0) + "</span>").join("") + "</span>";
 }
-const SOURCE_LABEL = { cli_upload: "CLI upload", json_import: "JSON import", media_upload: "Media upload", git_url: "Repository" };
+const SOURCE_LABEL = { cli_upload: "CLI upload", json_import: "JSON import", media_upload: "Media upload", git_url: "Repository", monitor: "Monitoring" };
 function sourceTag(source) { return '<span class="tag">' + esc(SOURCE_LABEL[source] || source) + "</span>"; }
 function pageHead(eyebrow, title, text, actions = "") {
   return '<div class="page-head"><div><div class="eyebrow">' + esc(eyebrow) + "</div><h1>" + esc(title) + "</h1>" + (text ? "<p>" + text + "</p>" : "") + "</div>" + (actions ? '<div class="button-row">' + actions + "</div>" : "") + "</div>";
@@ -83,6 +83,13 @@ function schedule(fn, ms) { stopPolling(); state.poll = setTimeout(fn, ms); }
 
 const routes = {
   overview: renderOverview,
+  summary: renderSummary,
+  findings: renderFindings,
+  targets: renderTargets,
+  infra: renderInfra,
+  graph: renderGraph,
+  integrations: renderIntegrations,
+  rules: renderRules,
   scans: renderScans,
   new: renderNewScan,
   scan: renderScan,
@@ -152,7 +159,7 @@ async function renderOverview() {
   const scopeToggle = state.user?.is_org_admin && state.user.org_id
     ? '<div class="tabs-inline" role="tablist"><button type="button" data-scope="mine" class="' + (scope === "mine" ? "active" : "") + '">My scans</button><button type="button" data-scope="org" class="' + (scope === "org" ? "active" : "") + '">Organization</button></div>' : "";
   let html = pageHead("Operations Center", "Exposure overview", "Open findings are taken from the latest completed scan of each target. New and resolved counts compare it with that target's previous scan.",
-    '<a class="btn" href="#/new">New scan</a>');
+    '<a class="secondary compact" href="#/summary">Executive summary</a><a class="btn" href="#/new">New scan</a>');
   html += scopeToggle;
   if (!data.scans_total) {
     view().innerHTML = html + emptyState("No scans yet", "Scan a public repository, upload images or documents, or import results from the CLI. Your first results will show up here.", '<a class="btn" href="#/new">Start a scan</a>');
@@ -237,6 +244,7 @@ async function renderNewScan(tab) {
   const L = caps.limits;
   const active = ["repo", "media", "import"].includes(tab) ? tab : (caps.web_scans_enabled ? "repo" : "import");
   let html = pageHead("Scanner", "New scan", "Findings are scored against your <a class=\"link-button\" href=\"#/profile\">identity profile</a>. Secret values are redacted before anything is stored.");
+  html += '<p class="hint">To watch your own domain, website, email address or GitHub account continuously, add it under <a class="link-button" href="#/targets">Monitored targets</a>.</p>';
   if (!caps.rules.ok) html += '<div class="notice show error">Detection rules are not available on this server, so scans cannot run. Ask an administrator to check the deployment.</div>';
   html += '<div class="tabs-inline" role="tablist">' +
     [["repo", "Public repository"], ["media", "Images & documents"], ["import", "Import CLI results"]].map(([k, l]) => '<button type="button" role="tab" data-tab="' + k + '" aria-selected="' + (k === active) + '" class="' + (k === active ? "active" : "") + '">' + l + "</button>").join("") + "</div>";
@@ -349,12 +357,12 @@ function bindImportForm() {
 
 // ------------------------------------------------------------------ scan detail + findings explorer
 
-const explorer = { scanId: null, risk: new Set(), category: "", rule: "", q: "", sort: "risk", order: "desc", offset: 0, limit: 50, open: new Set() };
+const explorer = { scanId: null, risk: new Set(), category: "", rule: "", q: "", status: "", sort: "risk", order: "desc", offset: 0, limit: 50, open: new Set() };
 
 async function renderScan(scanId) {
   if (!scanId) { location.hash = "#/scans"; return; }
   const scan = await api("/scans/" + encodeURIComponent(scanId));
-  if (explorer.scanId !== scanId) Object.assign(explorer, { scanId, risk: new Set(), category: "", rule: "", q: "", sort: "risk", order: "desc", offset: 0, open: new Set() });
+  if (explorer.scanId !== scanId) Object.assign(explorer, { scanId, risk: new Set(), category: "", rule: "", q: "", status: "", sort: "risk", order: "desc", offset: 0, open: new Set() });
   const own = scan.user_id === state.user?.id;
   let html = pageHead(SOURCE_LABEL[scan.source] || "Scan", scan.target_label,
     statusPill(scan.status) + " &nbsp;·&nbsp; " + esc(fmtDate(scan.created_at)) + (scan.owner_email && !own ? " &nbsp;·&nbsp; " + esc(scan.owner_email) : ""),
@@ -416,6 +424,7 @@ async function loadFindings() {
   if (explorer.category) q.set("category", explorer.category);
   if (explorer.rule) q.set("rule", explorer.rule);
   if (explorer.q) q.set("q", explorer.q);
+  if (explorer.status) q.set("status", explorer.status);
   const data = await api("/scans/" + encodeURIComponent(explorer.scanId) + "/findings?" + q);
   const f = data.facets;
   const opt = (obj, current, all) => '<option value="">' + all + "</option>" + Object.entries(obj).sort((a, b) => b[1] - a[1]).map(([k, n]) => '<option value="' + esc(k) + '"' + (k === current ? " selected" : "") + ">" + esc(k) + " (" + n + ")</option>").join("");
@@ -423,19 +432,14 @@ async function loadFindings() {
   html += '<div class="filters section">' + LABELS.map((l) => '<button type="button" class="chip' + (explorer.risk.has(l) ? " on" : "") + '" data-risk="' + l + '" aria-pressed="' + explorer.risk.has(l) + '">' + l.toLowerCase() + '<span class="n">' + (f.risk[l] || 0) + "</span></button>").join("") +
     '<select class="select" id="fCategory" aria-label="Category">' + opt(f.category, explorer.category, "All categories") + "</select>" +
     '<select class="select" id="fRule" aria-label="Rule">' + opt(f.rule, explorer.rule, "All rules") + "</select>" +
+    '<select class="select" id="fStatus" aria-label="Status">' + opt(f.status || {}, explorer.status, "Any status") + "</select>" +
     '<input class="input grow" id="fSearch" type="search" placeholder="Search origin, context, rule" value="' + esc(explorer.q) + '" aria-label="Search findings">' +
     '<select class="select" id="fSort" aria-label="Sort"><option value="risk:desc">Highest risk</option><option value="risk:asc">Lowest risk</option><option value="rule:asc">Rule A–Z</option><option value="category:asc">Category</option><option value="origin:asc">Origin</option></select></div>';
   if (!data.items.length) {
-    html += emptyState(data.total === 0 && !explorer.risk.size && !explorer.q && !explorer.category && !explorer.rule ? "No findings" : "Nothing matches these filters", data.total === 0 && !explorer.q ? "No detection rule matched anything in this scan." : "Clear a filter to see more.");
+    html += emptyState(data.total === 0 && !explorer.risk.size && !explorer.q && !explorer.category && !explorer.rule && !explorer.status ? "No findings" : "Nothing matches these filters", data.total === 0 && !explorer.q ? "No detection rule matched anything in this scan." : "Clear a filter to see more.");
   } else {
-    html += '<div class="table-wrap"><table><thead><tr><th>Risk</th><th>Rule</th><th>Value</th><th>Origin</th><th class="num">Seen</th></tr></thead><tbody>' +
-      data.items.map((x) => {
-        const open = explorer.open.has(x.id);
-        return '<tr class="clickable" data-finding="' + x.id + '" aria-expanded="' + open + '"><td>' + sev(x.risk_label) + '<div class="cell-sub mono">' + x.risk_score.toFixed(2) + '</div></td><td><div class="cell-main mono small">' + esc(x.rule_id) + '</div><div class="cell-sub">' + esc(x.category) + '</div></td><td><span class="preview">' + esc(x.preview) + '</span><div class="cell-sub">' + x.matched_length + ' chars</div></td><td><div class="small">' + esc(x.origin || "—") + '</div><div class="cell-sub">' + esc(x.context || "") + '</div></td><td class="num">' + x.occurrence_count + "×</td></tr>" +
-          (open ? '<tr class="detail-row"><td colspan="5"><dl class="detail-grid"><dt>Identity correlation</dt><dd>' + esc(x.identity_reason || "—") + " (×" + (x.identity_confidence ?? "—") + ')</dd><dt>Exposure</dt><dd>' + esc((x.exposure_level || "—").replaceAll("_", " ")) + '</dd><dt>Base severity</dt><dd>' + esc(x.base_severity ?? "—") + '</dd><dt>Entropy</dt><dd>' + esc(x.entropy_score === null ? "not checked" : Number(x.entropy_score).toFixed(2)) + '</dd><dt>Source</dt><dd>' + esc((x.source_type || "—").replaceAll("_", " ")) + '</dd><dt>Fingerprint</dt><dd class="mono">' + esc(x.fingerprint) + "</dd></dl></td></tr>" : "");
-      }).join("") + "</tbody></table></div>";
-    const end = Math.min(data.offset + data.items.length, data.total);
-    html += '<div class="pager"><span>' + (data.offset + 1) + "–" + end + " of " + data.total + '</span><span class="button-row"><button class="secondary compact" type="button" id="pgPrev"' + (data.offset ? "" : " disabled") + '>Previous</button><button class="secondary compact" type="button" id="pgNext"' + (end < data.total ? "" : " disabled") + ">Next</button></span></div>";
+    html += findingsTable(data.items, explorer.open, false);
+    html += pager(data.offset, data.items.length, data.total);
   }
   host.innerHTML = html;
   $("fSort").value = explorer.sort + ":" + explorer.order;
@@ -445,12 +449,8 @@ async function loadFindings() {
   $("fSort").addEventListener("change", (e) => { [explorer.sort, explorer.order] = e.target.value.split(":"); explorer.offset = 0; loadFindings(); });
   let timer;
   $("fSearch").addEventListener("input", (e) => { clearTimeout(timer); timer = setTimeout(() => { explorer.q = e.target.value.trim(); explorer.offset = 0; loadFindings().then(() => { const s = $("fSearch"); s.focus(); s.setSelectionRange(s.value.length, s.value.length); }); }, 300); });
-  host.querySelectorAll("tr[data-finding]").forEach((tr) => {
-    tr.tabIndex = 0;
-    const toggle = () => { const id = Number(tr.dataset.finding); explorer.open.has(id) ? explorer.open.delete(id) : explorer.open.add(id); loadFindings(); };
-    tr.addEventListener("click", toggle);
-    tr.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } });
-  });
+  $("fStatus").addEventListener("change", (e) => { explorer.status = e.target.value; explorer.offset = 0; loadFindings(); });
+  bindFindingsTable(host, explorer.open, loadFindings);
   $("pgPrev")?.addEventListener("click", () => { explorer.offset = Math.max(0, explorer.offset - explorer.limit); loadFindings(); });
   $("pgNext")?.addEventListener("click", () => { explorer.offset += explorer.limit; loadFindings(); });
 }
@@ -562,6 +562,305 @@ async function renderOrg() {
       renderOrg();
     } catch (error) { notice("error", error.message); }
   });
+}
+
+// ------------------------------------------------------------------ shared findings table + triage
+
+const STATUS_LABEL = { open: "Open", in_review: "In review", resolved: "Resolved", suppressed: "Suppressed", false_positive: "False positive" };
+
+function mitreTag(id) {
+  if (!id) return "";
+  const path = id.replace(".", "/");
+  return '<a class="tag mitre" href="https://attack.mitre.org/techniques/' + esc(path) + '/" target="_blank" rel="noopener noreferrer">' + esc(id) + "</a>";
+}
+
+function statusSelect(x) {
+  return '<select class="select compact-select" data-triage="' + x.id + '" aria-label="Triage status">' +
+    Object.entries(STATUS_LABEL).map(([k, v]) => '<option value="' + k + '"' + (k === x.status ? " selected" : "") + ">" + v + "</option>").join("") + "</select>";
+}
+
+function findingsTable(items, openSet, showTarget) {
+  return '<div class="table-wrap"><table><thead><tr><th>Risk</th><th>Rule</th><th>Value</th><th>Where</th><th>Status</th><th class="num">Seen</th></tr></thead><tbody>' +
+    items.map((x) => {
+      const open = openSet.has(x.id);
+      return '<tr class="clickable' + (["resolved", "suppressed", "false_positive"].includes(x.status) ? " dim" : "") + '" data-finding="' + x.id + '" aria-expanded="' + open + '"><td>' + sev(x.risk_label) + '<div class="cell-sub mono">' + Number(x.risk_score).toFixed(2) + '</div></td>' +
+        '<td><div class="cell-main mono small">' + esc(x.rule_id) + '</div><div class="cell-sub">' + esc(x.category) + " " + mitreTag(x.mitre) + '</div></td>' +
+        '<td><span class="preview">' + esc(x.preview) + '</span><div class="cell-sub">' + x.matched_length + ' chars</div></td>' +
+        '<td>' + (showTarget && x.target_label ? '<div class="cell-sub"><a class="link-button" href="#/scan/' + esc(x.scan_id) + '">' + esc(x.target_label) + "</a></div>" : "") + '<div class="small">' + esc(x.origin || "—") + '</div><div class="cell-sub">' + esc(x.context || "") + '</div></td>' +
+        '<td data-stop="1">' + statusSelect(x) + '</td><td class="num">' + x.occurrence_count + "×</td></tr>" +
+        (open ? '<tr class="detail-row"><td colspan="6"><dl class="detail-grid">' + (x.description ? "<dt>Rule</dt><dd>" + esc(x.description) + "</dd>" : "") + '<dt>Identity correlation</dt><dd>' + esc(x.identity_reason || "—") + " (×" + (x.identity_confidence ?? "—") + ')</dd><dt>Exposure</dt><dd>' + esc((x.exposure_level || "—").replaceAll("_", " ")) + '</dd><dt>Base severity</dt><dd>' + esc(x.base_severity ?? "—") + '</dd><dt>Entropy</dt><dd>' + esc(x.entropy_score === null || x.entropy_score === undefined ? "not checked" : Number(x.entropy_score).toFixed(2)) + '</dd><dt>Source</dt><dd>' + esc((x.source_type || "—").replaceAll("_", " ")) + '</dd><dt>MITRE ATT&amp;CK</dt><dd>' + (mitreTag(x.mitre) || "—") + '</dd><dt>Fingerprint</dt><dd class="mono">' + esc(x.fingerprint) + "</dd></dl></td></tr>" : "");
+    }).join("") + "</tbody></table></div>";
+}
+
+function pager(offset, count, total) {
+  const end = Math.min(offset + count, total);
+  return '<div class="pager"><span>' + (total ? offset + 1 : 0) + "–" + end + " of " + total + '</span><span class="button-row"><button class="secondary compact" type="button" id="pgPrev"' + (offset ? "" : " disabled") + '>Previous</button><button class="secondary compact" type="button" id="pgNext"' + (end < total ? "" : " disabled") + ">Next</button></span></div>";
+}
+
+function bindFindingsTable(host, openSet, rerender) {
+  host.querySelectorAll("tr[data-finding]").forEach((tr) => {
+    tr.tabIndex = 0;
+    const toggle = (e) => { if (e.target.closest("[data-stop]")) return; const id = Number(tr.dataset.finding); openSet.has(id) ? openSet.delete(id) : openSet.add(id); rerender(); };
+    tr.addEventListener("click", toggle);
+    tr.addEventListener("keydown", (e) => { if ((e.key === "Enter" || e.key === " ") && !e.target.closest("[data-stop]")) { e.preventDefault(); toggle(e); } });
+  });
+  host.querySelectorAll("[data-triage]").forEach((sel) => sel.addEventListener("change", async () => {
+    sel.disabled = true;
+    try {
+      await api("/findings/" + sel.dataset.triage + "/status", { method: "PATCH", body: JSON.stringify({ status: sel.value }) });
+      notice("success", "Marked " + STATUS_LABEL[sel.value].toLowerCase() + ". The status carries over to future scans of this target.");
+      rerender();
+    } catch (error) { notice("error", error.message); sel.disabled = false; }
+  }));
+}
+
+// ------------------------------------------------------------------ global findings
+
+const gf = { q: "", risk: new Set(), status: "open,in_review", mitre: "", category: "", offset: 0, limit: 50, open: new Set() };
+
+async function renderFindings() {
+  view().innerHTML = pageHead("Scanner", "Findings", "Every open finding across the latest scan of each target. Triage here: the status follows the finding into future scans.") + '<div id="gfHost"></div>';
+  await loadGlobalFindings();
+}
+
+async function loadGlobalFindings() {
+  const host = $("gfHost");
+  if (!host) return;
+  const q = new URLSearchParams({ limit: String(gf.limit), offset: String(gf.offset) });
+  if (gf.q) q.set("q", gf.q);
+  if (gf.risk.size) q.set("risk", [...gf.risk].join(","));
+  if (gf.status) q.set("status", gf.status);
+  if (gf.mitre) q.set("mitre", gf.mitre);
+  if (gf.category) q.set("category", gf.category);
+  const [data, rules] = await Promise.all([api("/findings?" + q), state.rules ? Promise.resolve(state.rules) : api("/rules")]);
+  state.rules = rules;
+  const mitres = [...new Set(rules.map((r) => r.mitre).filter(Boolean))].sort();
+  const cats = [...new Set(rules.map((r) => r.category))].sort();
+  let html = '<div class="filters">' + LABELS.map((l) => '<button type="button" class="chip' + (gf.risk.has(l) ? " on" : "") + '" data-grisk="' + l + '" aria-pressed="' + gf.risk.has(l) + '">' + l.toLowerCase() + "</button>").join("") +
+    '<select class="select" id="gStatus" aria-label="Status"><option value="open,in_review">Open + in review</option><option value="">Any status</option>' + Object.entries(STATUS_LABEL).map(([k, v]) => '<option value="' + k + '">' + v + "</option>").join("") + "</select>" +
+    '<select class="select" id="gCat" aria-label="Category"><option value="">All categories</option>' + cats.map((c) => "<option" + (c === gf.category ? " selected" : "") + ">" + esc(c) + "</option>").join("") + "</select>" +
+    '<select class="select" id="gMitre" aria-label="MITRE technique"><option value="">All techniques</option>' + mitres.map((m) => "<option" + (m === gf.mitre ? " selected" : "") + ">" + esc(m) + "</option>").join("") + "</select>" +
+    '<input class="input grow" id="gSearch" type="search" placeholder="Search origin, context, rule, value preview" value="' + esc(gf.q) + '" aria-label="Search findings"></div>';
+  html += data.items.length ? findingsTable(data.items, gf.open, true) + pager(gf.offset, data.items.length, data.total)
+    : emptyState("Nothing here", gf.q || gf.risk.size || gf.mitre || gf.category ? "No finding matches these filters." : "No open findings. Run a scan or change the status filter.");
+  host.innerHTML = html;
+  $("gStatus").value = gf.status;
+  host.querySelectorAll("[data-grisk]").forEach((b) => b.addEventListener("click", () => { gf.risk.has(b.dataset.grisk) ? gf.risk.delete(b.dataset.grisk) : gf.risk.add(b.dataset.grisk); gf.offset = 0; loadGlobalFindings(); }));
+  $("gStatus").addEventListener("change", (e) => { gf.status = e.target.value; gf.offset = 0; loadGlobalFindings(); });
+  $("gCat").addEventListener("change", (e) => { gf.category = e.target.value; gf.offset = 0; loadGlobalFindings(); });
+  $("gMitre").addEventListener("change", (e) => { gf.mitre = e.target.value; gf.offset = 0; loadGlobalFindings(); });
+  let timer;
+  $("gSearch").addEventListener("input", (e) => { clearTimeout(timer); timer = setTimeout(() => { gf.q = e.target.value.trim(); gf.offset = 0; loadGlobalFindings().then(() => { const s = $("gSearch"); s.focus(); s.setSelectionRange(s.value.length, s.value.length); }); }, 300); });
+  bindFindingsTable(host, gf.open, loadGlobalFindings);
+  $("pgPrev")?.addEventListener("click", () => { gf.offset = Math.max(0, gf.offset - gf.limit); loadGlobalFindings(); });
+  $("pgNext")?.addEventListener("click", () => { gf.offset += gf.limit; loadGlobalFindings(); });
+}
+
+// ------------------------------------------------------------------ executive summary
+
+function gauge(value) {
+  const pct = Math.max(0, Math.min(10, value)) / 10;
+  const r = 52, c = 2 * Math.PI * r, color = value >= 9 ? "#ff7a75" : value >= 6.5 ? "#f5a35c" : value >= 4 ? "#e8d26a" : "#7ed6ad";
+  return '<svg class="gauge" viewBox="0 0 130 130" role="img" aria-label="Exposure index ' + value + ' out of 10"><circle cx="65" cy="65" r="' + r + '" fill="none" stroke="#1a232b" stroke-width="12"/>' +
+    '<circle cx="65" cy="65" r="' + r + '" fill="none" stroke="' + color + '" stroke-width="12" stroke-linecap="round" stroke-dasharray="' + (c * pct).toFixed(1) + " " + c.toFixed(1) + '" transform="rotate(-90 65 65)"/>' +
+    '<text x="65" y="70" text-anchor="middle" class="gauge-num">' + value.toFixed(1) + '</text><text x="65" y="90" text-anchor="middle" class="gauge-sub">/ 10</text></svg>';
+}
+
+async function renderSummary() {
+  const d = await api("/reports/summary");
+  let html = pageHead("Reports", "Executive summary", "Computed from the latest scan of every target, excluding findings you resolved, suppressed or marked false positive.",
+    '<a class="secondary compact" href="/reports/summary.pdf">Download PDF</a><a class="secondary compact" href="/reports/summary.txt">Download TXT</a>');
+  if (!d.targets) { view().innerHTML = html + emptyState("Nothing to summarise yet", "Run a scan first.", '<a class="btn" href="#/new">New scan</a>'); return; }
+  html += '<div class="grid grid-wide"><section class="card summary-hero">' + gauge(d.exposure_index) + '<div><h3>Exposure index</h3><p class="hint">Worst open finding × 0.7, plus up to 3 points for volume (critical 1.0, high 0.5, medium 0.15, low 0.03 each).</p>' +
+    '<div class="counts section">' + LABELS.map((l) => '<span class="sev ' + l + '">' + d.counts[l] + " " + l.toLowerCase() + "</span>").join(" ") + '</div><p class="small muted section">' + d.open_findings + " open finding(s) across " + d.targets + " target(s)</p></div></section>" +
+    '<section class="card"><h3>Recommended actions</h3>' + (d.recommendations.length ? '<ol class="recs">' + d.recommendations.map((r) => "<li><strong>" + esc(r.category.replaceAll("_", " ")) + "</strong> — " + esc(r.text) + "</li>").join("") + "</ol>" : '<p class="hint section">No open findings.</p>') + "</section></div>";
+  if (d.narrative) html += '<section class="card section"><h3>Summary</h3><p class="narrative">' + esc(d.narrative) + '</p><p class="hint">Written by an AI model from aggregate, redacted counts.</p></section>';
+  html += '<section class="section"><h3>Top risks</h3><div class="table-wrap section"><table><thead><tr><th>Risk</th><th>Finding</th><th>Where</th><th>ATT&amp;CK</th></tr></thead><tbody>' +
+    d.top_findings.map((f) => '<tr class="clickable" data-href="#/scan/' + esc(f.scan_id) + '"><td>' + sev(f.risk_label) + '<div class="cell-sub mono">' + f.risk_score.toFixed(2) + '</div></td><td><div class="cell-main mono small">' + esc(f.rule_id) + '</div><div class="cell-sub">' + esc(f.description || f.category) + '</div></td><td class="small">' + esc(f.origin || "") + "</td><td>" + mitreTag(f.mitre) + "</td></tr>").join("") + "</tbody></table></div></section>";
+  html += '<div class="grid grid-3 section"><section class="card"><h3>By target</h3>' + hbars(d.by_target.map((t) => ({ target: t.target + " · " + t.index, count: t.open })), "target") + '</section><section class="card"><h3>By category</h3>' + hbars(d.categories, "category") + '</section><section class="card"><h3>MITRE ATT&amp;CK</h3>' + hbars(d.mitre, "technique") + "</section></div>";
+  view().innerHTML = html;
+  applyBarWidths(view());
+  bindRowLinks();
+}
+
+// ------------------------------------------------------------------ monitoring targets
+
+const KIND_LABEL = { domain: "Domain", url: "Web page / URL", email: "Email address", github_handle: "GitHub handle" };
+const KIND_HINT = {
+  domain: "Crawls the site, checks for exposed .git/.env/backups, DNS, SPF/DMARC, certificate-log subdomains, WHOIS/RDAP and IP owners.",
+  url: "Crawls this page and its links on the same site. Its domain must be verified first.",
+  email: "Breach and paste exposure (HaveIBeenPwned) and public code mentions. Only your account email can be added.",
+  github_handle: "Scans the handle's public gists and its three most recently pushed repositories.",
+};
+
+async function renderTargets() {
+  const [targets, caps] = await Promise.all([api("/targets"), state.caps ? Promise.resolve(state.caps) : api("/scans/capabilities")]);
+  state.caps = caps;
+  let html = pageHead("Monitoring", "Monitored targets", "Collection modules only run on things you prove you own. Add a target, verify it, then scan it now or on a schedule.");
+  html += '<div class="grid grid-wide"><section class="card"><h3>Targets</h3>' + (targets.length ? '<div class="members">' + targets.map(targetRow).join("") + "</div>" : '<p class="hint section">No targets yet.</p>') + "</section>" +
+    '<section class="card"><h3>Add a target</h3><form id="targetForm" class="form-grid section"><div class="field"><label for="tKind">Type</label><select id="tKind" class="select">' +
+    Object.entries(KIND_LABEL).map(([k, v]) => '<option value="' + k + '">' + v + "</option>").join("") + '</select></div><p class="hint" id="tKindHint"></p>' +
+    '<div class="field"><label for="tValue">Value</label><input id="tValue" class="input" required maxlength="500" placeholder="example.com"></div>' +
+    '<div class="field"><label for="tSchedule">Re-scan</label><select id="tSchedule" class="select"><option value="none">Manually</option><option value="daily">Daily</option><option value="weekly">Weekly</option></select></div>' +
+    '<div><button class="btn" type="submit">Add target</button></div></form></section></div>';
+  view().innerHTML = html;
+  const kindHint = () => { $("tKindHint").textContent = KIND_HINT[$("tKind").value]; $("tValue").placeholder = { domain: "example.com", url: "https://example.com/team", email: state.user.email, github_handle: "your-username" }[$("tKind").value]; };
+  $("tKind").addEventListener("change", kindHint); kindHint();
+  $("targetForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    try { await api("/targets", { method: "POST", body: JSON.stringify({ kind: $("tKind").value, value: $("tValue").value.trim(), schedule: $("tSchedule").value }) }); notice("success", "Target added."); renderTargets(); }
+    catch (error) { notice("error", error.message); }
+  });
+  view().querySelectorAll("[data-verify]").forEach((b) => b.addEventListener("click", async () => {
+    b.disabled = true; b.textContent = "Checking…";
+    try { await api("/targets/" + b.dataset.verify + "/verify", { method: "POST", body: "{}" }); notice("success", "Ownership verified."); renderTargets(); }
+    catch (error) { notice("error", error.message); b.disabled = false; b.textContent = "Verify now"; }
+  }));
+  view().querySelectorAll("[data-tscan]").forEach((b) => b.addEventListener("click", async () => {
+    b.disabled = true;
+    try { const scan = await api("/targets/" + b.dataset.tscan + "/scan", { method: "POST" }); location.hash = "#/scan/" + scan.id; }
+    catch (error) { notice("error", error.message); b.disabled = false; }
+  }));
+  view().querySelectorAll("[data-tsched]").forEach((sel) => sel.addEventListener("change", async () => {
+    try { await api("/targets/" + sel.dataset.tsched, { method: "PATCH", body: JSON.stringify({ schedule: sel.value }) }); notice("success", "Schedule updated."); }
+    catch (error) { notice("error", error.message); }
+  }));
+  view().querySelectorAll("[data-tdel]").forEach((b) => b.addEventListener("click", async () => {
+    if (!window.confirm("Stop monitoring this target? Past scans are kept.")) return;
+    try { await api("/targets/" + b.dataset.tdel, { method: "DELETE" }); renderTargets(); } catch (error) { notice("error", error.message); }
+  }));
+  view().querySelectorAll("[data-copy]").forEach((b) => b.addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(b.dataset.copy); notice("success", "Copied."); } catch { notice("info", "Select the text and copy it manually."); }
+  }));
+}
+
+function targetRow(t) {
+  const sched = '<select class="select compact-select" data-tsched="' + esc(t.id) + '" aria-label="Schedule">' + ["none", "daily", "weekly"].map((s) => '<option value="' + s + '"' + (s === t.schedule ? " selected" : "") + ">" + (s === "none" ? "Manual" : s) + "</option>").join("") + "</select>";
+  let body = '<div class="member-row target-row"><div class="member-main"><strong>' + esc(t.value) + "</strong><span>" + esc(KIND_LABEL[t.kind]) + " · " +
+    (t.verified ? '<span class="ok">verified (' + esc((t.verification_method || "").replaceAll("_", " ")) + ")</span>" : '<span class="warn">not verified</span>') +
+    (t.last_scan_at ? ' · last scan <a class="link-button" href="#/scan/' + esc(t.last_scan_id) + '">' + esc(ago(t.last_scan_at)) + "</a>" : "") +
+    (t.next_run_at && t.schedule !== "none" ? " · next " + esc(fmtDate(t.next_run_at)) : "") + '</span></div><div class="member-actions">' +
+    (t.verified ? sched + '<button class="btn" type="button" data-tscan="' + esc(t.id) + '">Scan now</button>' : '<button class="btn" type="button" data-verify="' + esc(t.id) + '">Verify now</button>') +
+    '<button class="danger" type="button" data-tdel="' + esc(t.id) + '">Remove</button></div></div>';
+  if (!t.verified && t.verification) {
+    body += '<div class="verify-box">' + t.verification.methods.map((m) => "<div><strong>" + esc(m.summary) + "</strong>" +
+      (m.record ? '<pre class="code">' + esc(m.record) + '</pre><button class="link-button" type="button" data-copy="' + esc(m.record) + '">Copy record</button>' : "") +
+      (m.content && !m.record ? '<pre class="code">' + esc(m.content) + '</pre><button class="link-button" type="button" data-copy="' + esc(m.content) + '">Copy token</button>' : "") + "</div>").join("") + "</div>";
+  }
+  return body;
+}
+
+// ------------------------------------------------------------------ domain & infra
+
+async function renderInfra() {
+  const rows = await api("/intel/domains");
+  let html = pageHead("Monitoring", "Domain & infrastructure", "Public records gathered for your verified domains: DNS, mail security, certificate-transparency subdomains, registration data and IP ownership.");
+  if (!rows.length) { view().innerHTML = html + emptyState("No domains yet", "Add and verify a domain under Monitored targets.", '<a class="btn" href="#/targets">Add a domain</a>'); return; }
+  html += rows.map((d) => {
+    const i = d.intel || {};
+    const dns = i.dns || {};
+    const list = (arr) => (arr && arr.length ? arr.map((v) => '<div class="mono small">' + esc(v) + "</div>").join("") : '<span class="faint small">none</span>');
+    return '<section class="card section"><div class="card-head"><div><h3>' + esc(d.domain) + '</h3><p class="card-subtext">' + (d.scanned_at ? "Scanned " + esc(fmtDate(d.scanned_at)) + ' · <a class="link-button" href="#/scan/' + esc(d.scan_id) + '">open findings</a>' : d.verified ? "Not scanned yet" : "Not verified") + "</p></div></div>" +
+      (d.scanned_at ? '<div class="grid grid-3 section"><div><div class="small faint">A / AAAA</div>' + list((dns.A || []).concat(dns.AAAA || [])) + '</div><div><div class="small faint">MX</div>' + list(dns.MX) + '</div><div><div class="small faint">NS</div>' + list(dns.NS) + "</div>" +
+        '<div><div class="small faint">SPF</div>' + list(i.spf ? [i.spf] : []) + '</div><div><div class="small faint">DMARC</div>' + list(i.dmarc ? [i.dmarc] : []) + '</div><div><div class="small faint">Registration (RDAP)</div>' + list(i.rdap ? ["Registrar: " + (i.rdap.registrar || "?"), "Expires: " + (i.rdap.expires || "?")] : []) + "</div></div>" +
+        '<div class="grid grid-2 section"><div><div class="small faint">IP owners</div>' + list((i.ips || []).map((x) => x.ip + " — " + (x.network || "?") + " " + (x.country || ""))) + (i.services && i.services.length ? '<div class="small faint section">Open ports (Shodan)</div>' + list(i.services.map((s) => s.ip + ":" + s.port)) : "") + "</div>" +
+        '<div><div class="small faint">Subdomains from certificate logs (' + (i.subdomains || []).length + ")</div>" + '<div class="scroll-box">' + list((i.subdomains || []).slice(0, 200)) + "</div></div></div>" +
+        (d.notes && d.notes.length ? '<p class="hint section">' + d.notes.map(esc).join("<br>") + "</p>" : "") : "") + "</section>";
+  }).join("");
+  view().innerHTML = html;
+}
+
+// ------------------------------------------------------------------ identity graph
+
+async function renderGraph() {
+  const g = await api("/identity/graph");
+  const layers = { person: 0, email: 1, domain: 1, handle: 1, alias: 1, target: 2, scan: 3, finding: 4 };
+  const cols = [[], [], [], [], []];
+  g.nodes.forEach((n) => cols[layers[n.kind] ?? 4].push(n));
+  const W = 1100, colW = W / 5, rowH = 54;
+  const H = Math.max(260, Math.max(...cols.map((c) => c.length)) * rowH + 60);
+  const pos = {};
+  cols.forEach((col, ci) => col.forEach((n, ri) => { pos[n.id] = { x: 20 + ci * colW, y: 40 + ri * rowH + (H - 60 - col.length * rowH) / 2 }; }));
+  const color = { person: "#73b7ff", email: "#8ce0bd", domain: "#8ce0bd", handle: "#8ce0bd", alias: "#8ce0bd", target: "#b39dff", scan: "#91a0ab" };
+  const sevColor = { CRITICAL: "#ff7a75", HIGH: "#f5a35c", MEDIUM: "#e8d26a", LOW: "#7fb3d9" };
+  const nodeW = colW - 40;
+  let svg = '<svg class="graph" viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="Identity graph">';
+  g.edges.forEach((e) => {
+    const a = pos[e.from], b = pos[e.to];
+    if (!a || !b) return;
+    const x1 = a.x + nodeW, y1 = a.y + 18, x2 = b.x, y2 = b.y + 18, mx = (x1 + x2) / 2;
+    svg += '<path d="M' + x1 + "," + y1 + " C" + mx + "," + y1 + " " + mx + "," + y2 + " " + x2 + "," + y2 + '" fill="none" stroke="' + (e.label === "correlates" ? "#73b7ff" : "#2c3944") + '" stroke-width="' + (e.label === "correlates" ? 2 : 1.2) + '"><title>' + esc(e.label) + "</title></path>";
+  });
+  g.nodes.forEach((n) => {
+    const p = pos[n.id];
+    const stroke = n.kind === "finding" ? sevColor[n.risk_label] || "#7fb3d9" : color[n.kind] || "#91a0ab";
+    const label = n.label.length > 26 ? n.label.slice(0, 25) + "…" : n.label;
+    const sub = n.kind === "finding" ? (n.risk_label || "") + " · " + n.count + "×" + (n.correlated ? " · correlated" : "") : n.kind === "target" ? (n.verified ? "verified target" : "unverified target") : n.kind;
+    svg += '<g class="gnode' + (n.scan_id ? " link" : "") + '"' + (n.scan_id ? ' data-href="#/scan/' + esc(n.scan_id) + '"' : "") + '><rect x="' + p.x + '" y="' + p.y + '" width="' + nodeW + '" height="38" rx="8" fill="#0d1318" stroke="' + stroke + '"/>' +
+      '<text x="' + (p.x + 10) + '" y="' + (p.y + 16) + '" class="gl">' + esc(label) + '</text><text x="' + (p.x + 10) + '" y="' + (p.y + 30) + '" class="gs">' + esc(sub) + "</text><title>" + esc(n.label) + "</title></g>";
+  });
+  svg += "</svg>";
+  view().innerHTML = pageHead("Monitoring", "Identity graph", "How your identity anchors (profile), monitored targets, scans and finding groups connect. Blue links mark findings that matched one of your identities.") +
+    (g.nodes.length > 1 ? '<section class="card graph-card">' + svg + '</section><div class="legend"><span><i class="c"></i>Critical</span><span><i class="h"></i>High</span><span><i class="m"></i>Medium</span><span><i class="l"></i>Low</span></div>'
+      : emptyState("Graph is empty", "Fill in your identity profile and run a scan.", '<a class="btn" href="#/profile">Identity profile</a>'));
+  view().querySelectorAll(".gnode.link").forEach((n) => n.addEventListener("click", () => { location.hash = n.dataset.href; }));
+}
+
+// ------------------------------------------------------------------ integrations
+
+const INTEGRATION_FIELDS = {
+  slack: [["webhook_url", "Incoming webhook URL", "https://hooks.slack.com/services/…"]],
+  discord: [["webhook_url", "Channel webhook URL", "https://discord.com/api/webhooks/…"]],
+  telegram: [["bot_token", "Bot token", "123456:ABC…"], ["chat_id", "Chat id", "-1001234567890"]],
+  webhook: [["url", "HTTPS endpoint (SIEM / SOAR / custom)", "https://siem.example.com/ingest"], ["secret", "Signing secret (optional, HMAC-SHA256 in X-OPSEC-Signature)", ""]],
+  github_issues: [["repo", "Repository (owner/name)", "you/security-alerts"], ["token", "Token with issues: write", "github_pat_…"]],
+  email: [],
+};
+const INTEGRATION_LABEL = { slack: "Slack", discord: "Discord", telegram: "Telegram", webhook: "Webhook (SIEM / SOAR)", github_issues: "GitHub Issues", email: "Email (your account address)" };
+
+async function renderIntegrations() {
+  const rows = await api("/integrations");
+  let html = pageHead("Configuration", "Alerts & integrations", "Send new findings from any scan to chat, a ticket tracker or your SIEM. Messages contain redacted previews only. Credentials are stored encrypted and never shown again.");
+  html += '<div class="grid grid-wide"><section class="card"><h3>Destinations</h3>' + (rows.length ? '<div class="members">' + rows.map((i) =>
+    '<div class="member-row"><div class="member-main"><strong>' + esc(i.name) + "</strong><span>" + esc(INTEGRATION_LABEL[i.kind]) + " · " + esc(i.hint || "") + " · " + esc(i.min_severity.toLowerCase()) + "+" + (i.only_new ? " · new only" : " · all") + (i.last_status ? " · " + esc(i.last_status) + " " + esc(ago(i.last_sent_at)) : "") + '</span></div><div class="member-actions">' +
+    '<button class="secondary compact" type="button" data-itest="' + esc(i.id) + '">Send test</button><button class="secondary compact" type="button" data-itoggle="' + esc(i.id) + '" data-next="' + !i.enabled + '">' + (i.enabled ? "Pause" : "Resume") + '</button><button class="danger" type="button" data-idel="' + esc(i.id) + '">Delete</button></div></div>').join("") + "</div>" : '<p class="hint section">No destinations yet.</p>') + "</section>" +
+    '<section class="card"><h3>Add a destination</h3><form id="intForm" class="form-grid section"><div class="field"><label for="iKind">Type</label><select id="iKind" class="select">' + Object.entries(INTEGRATION_LABEL).map(([k, v]) => '<option value="' + k + '">' + v + "</option>").join("") + "</select></div>" +
+    '<div class="field"><label for="iName">Name</label><input id="iName" class="input" required maxlength="80" placeholder="Security channel"></div><div id="iFields" class="form-grid"></div>' +
+    '<div class="form-row"><div class="field"><label for="iSev">Minimum severity</label><select id="iSev" class="select"><option>CRITICAL</option><option selected>HIGH</option><option>MEDIUM</option><option>LOW</option></select></div><div class="field"><label for="iNew">Send</label><select id="iNew" class="select"><option value="true">New findings only</option><option value="false">Every matching finding</option></select></div></div>' +
+    '<div><button class="btn" type="submit">Save destination</button></div></form></section></div>';
+  view().innerHTML = html;
+  const fields = () => { $("iFields").innerHTML = INTEGRATION_FIELDS[$("iKind").value].map(([k, label, ph]) => '<div class="field"><label for="if_' + k + '">' + esc(label) + '</label><input id="if_' + k + '" data-cfg="' + k + '" class="input" placeholder="' + esc(ph) + '" autocomplete="off"' + (k === "secret" ? "" : " required") + "></div>").join("") || '<p class="hint">Uses the server\'s SMTP settings and sends to ' + esc(state.user.email) + ".</p>"; };
+  $("iKind").addEventListener("change", fields); fields();
+  $("intForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const config = {};
+    view().querySelectorAll("[data-cfg]").forEach((inp) => { if (inp.value.trim()) config[inp.dataset.cfg] = inp.value.trim(); });
+    try { await api("/integrations", { method: "POST", body: JSON.stringify({ kind: $("iKind").value, name: $("iName").value.trim(), config, min_severity: $("iSev").value, only_new: $("iNew").value === "true" }) }); notice("success", "Destination saved."); renderIntegrations(); }
+    catch (error) { notice("error", error.message); }
+  });
+  view().querySelectorAll("[data-itest]").forEach((b) => b.addEventListener("click", async () => {
+    b.disabled = true;
+    try { const r = await api("/integrations/" + b.dataset.itest + "/test", { method: "POST" }); notice(r.last_status.startsWith("test sent") ? "success" : "error", r.last_status); renderIntegrations(); }
+    catch (error) { notice("error", error.message); b.disabled = false; }
+  }));
+  view().querySelectorAll("[data-itoggle]").forEach((b) => b.addEventListener("click", async () => {
+    try { await api("/integrations/" + b.dataset.itoggle, { method: "PATCH", body: JSON.stringify({ enabled: b.dataset.next === "true" }) }); renderIntegrations(); } catch (error) { notice("error", error.message); }
+  }));
+  view().querySelectorAll("[data-idel]").forEach((b) => b.addEventListener("click", async () => {
+    if (!window.confirm("Delete this destination?")) return;
+    try { await api("/integrations/" + b.dataset.idel, { method: "DELETE" }); renderIntegrations(); } catch (error) { notice("error", error.message); }
+  }));
+}
+
+// ------------------------------------------------------------------ detection rules
+
+async function renderRules() {
+  const rules = state.rules || (state.rules = await api("/rules"));
+  const byCat = {};
+  rules.forEach((r) => (byCat[r.category] = byCat[r.category] || []).push(r));
+  view().innerHTML = pageHead("Configuration", "Detection rules", rules.length + " rules: pattern rules run over every collected text; check rules come from the monitoring modules. Each maps to a MITRE ATT&amp;CK technique.") +
+    Object.entries(byCat).sort().map(([cat, list]) => '<section class="section"><h3>' + esc(cat.replaceAll("_", " ")) + '</h3><div class="table-wrap section"><table><thead><tr><th>Rule</th><th>Description</th><th class="num">Base severity</th><th>ATT&amp;CK</th></tr></thead><tbody>' +
+      list.map((r) => '<tr><td class="mono small">' + esc(r.id) + "</td><td class=\"small\">" + esc(r.description) + '</td><td class="num">' + Number(r.base_severity).toFixed(1) + "</td><td>" + mitreTag(r.mitre) + "</td></tr>").join("") + "</tbody></table></div></section>").join("");
 }
 
 // ------------------------------------------------------------------ boot

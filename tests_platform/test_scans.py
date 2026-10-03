@@ -20,11 +20,14 @@ AWS_KEY = "AKIAIOSFODNN7EXAMPLQ"
 
 
 @pytest.fixture
-def client():
+def client(tmp_path):
+    # A file database, not :memory:. In-memory SQLite shares ONE connection
+    # across threads (StaticPool), so a request finishing its session would
+    # roll back a background scan's transaction mid-flight — a test-only race.
     import opsec_platform.app.dependencies as deps
     deps._engine = None
     deps._SessionLocal = None
-    os.environ["PLATFORM_DATABASE_URL"] = "sqlite:///:memory:"
+    os.environ["PLATFORM_DATABASE_URL"] = f"sqlite:///{tmp_path / 'platform.db'}"
     from opsec_platform.app.main import create_app
     return TestClient(create_app())
 
@@ -375,12 +378,13 @@ def test_git_scan_failure_is_reported(client, monkeypatch):
     assert scan["status"] == "failed" and scan["error"] == "Repository not found or not public."
 
 
-def test_stale_scans_are_marked_failed():
+def test_stale_scans_are_marked_failed(tmp_path):
     from datetime import datetime, timedelta, timezone
     from opsec_platform.app import dependencies, scan_service
+    from opsec_platform.app.database import make_engine
     from opsec_platform.app.models import Scan, User
 
-    dependencies.configure_db()
+    dependencies.configure_db(make_engine(f"sqlite:///{tmp_path / 'stale.db'}"))
     from opsec_platform.app.database import init_db
     init_db(dependencies._engine)
     db = dependencies._SessionLocal()

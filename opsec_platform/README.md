@@ -196,6 +196,23 @@ rejected with 403. Non-browser clients send neither header and are unaffected.
 
 All limits are environment variables; see `.env.example`.
 
+## Monitoring modules (architecture: inputs → collection → processing → analysis → output → integrations)
+
+| Layer | Implemented as | Code |
+| --- | --- | --- |
+| Inputs | Monitored targets: domain, URL, email, GitHub handle — each **ownership-verified** (DNS TXT / `.well-known` file, account email, public gist) | `osint/verification.py`, `/targets` |
+| Collection | Crawler for verified sites (robots.txt respected, same-site only) + exposure checks (`.git`, `.env`, backups, `.DS_Store`, server-status); DNS, SPF/DMARC, certificate-transparency subdomains, RDAP/WHOIS, IP ownership, optional Shodan; GitHub code search and a handle's gists/repos; optional HaveIBeenPwned breach + paste exposure | `osint/collectors.py` |
+| Processing | Line extraction, normalisation, path rewriting, deduplication, IP → network enrichment | `osint/collectors.py`, `scan_service.py` |
+| Analysis | Pattern rules + checksum validators (Luhn, Verhoeff/Aadhaar, IBAN, SSN) for credentials, PII, IDs, financial data, misconfiguration; identity correlation; risk scoring; MITRE ATT&CK per rule | `rules/patterns.yaml`, `opsec_scanner/analysis/patterns.py` |
+| Storage | Results DB (redacted previews + keyed fingerprints), triage state, encrypted integration configs; search over findings in Postgres | `models.py` |
+| Output | Executive summary (exposure index, recommendations, optional AI paragraph), global findings search + triage, Domain & infra, identity graph, PDF/TXT/JSON/CSV/SARIF | `reports.py`, `monitor_routes.py`, `static/workspace.js` |
+| Integrations | Slack, Discord, Telegram, signed JSON webhook (SIEM/SOAR), GitHub Issues, email (SMTP) | `alerts.py`, `/integrations` |
+| Supporting | Scheduler for daily/weekly re-scans (multi-process safe claim), in-process job pool, JSON logs | `osint/scheduler.py`, `logging_setup.py` |
+
+**Deliberately not implemented:** social-media and search-engine scraping, dark-web/onion crawling and scraping paste sites by name. They collect data about any person typed in, cannot be restricted to identifiers the user owns, and break those sites' terms. Breach and paste exposure for the user's own verified email comes from HaveIBeenPwned instead. Elasticsearch/Celery/Redis are not used; Postgres and the in-process pool cover this scale.
+
+**Network safety.** Every user-influenced request goes through `osint/net.py`: http(s) only, ports 80/443, all resolved addresses must be public, the connection is pinned to the vetted IP (Host header + TLS SNI keep the name, so DNS rebinding cannot redirect it), each redirect is re-validated, bodies are capped. Webhook destinations use the same client.
+
 ## How this connects to the CLI
 
 The CLI itself remains fully local-first and does not talk to this platform by default —

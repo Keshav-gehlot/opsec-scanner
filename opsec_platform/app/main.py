@@ -12,14 +12,14 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.staticfiles import StaticFiles
 
-from opsec_platform.app import activity_routes, auth_routes, oauth_routes, scan_routes
+from opsec_platform.app import activity_routes, auth_routes, monitor_routes, oauth_routes, scan_routes
 from opsec_platform.app.config import get_settings
 from opsec_platform.app.database import init_db
 from opsec_platform.app.dependencies import configure_db
 from opsec_platform.app.oauth_providers import configured_providers
 
 
-APP_VERSION = "0.3.0"
+APP_VERSION = "0.4.0"
 logger = logging.getLogger(__name__)
 
 
@@ -44,6 +44,9 @@ def scanner_status() -> dict:
 
 
 def create_app() -> FastAPI:
+    from opsec_platform.app.logging_setup import configure as configure_logging
+
+    configure_logging()
     settings = get_settings()
     app = FastAPI(title="OPSEC Scanner Platform", version=APP_VERSION)
 
@@ -110,6 +113,14 @@ def create_app() -> FastAPI:
     app.include_router(activity_routes.router)
     app.include_router(scan_routes.router)
     app.include_router(scan_routes.profile_router)
+    app.include_router(monitor_routes.targets_router)
+    app.include_router(monitor_routes.findings_router)
+    app.include_router(monitor_routes.reports_router)
+    app.include_router(monitor_routes.intel_router)
+    app.include_router(monitor_routes.integrations_router)
+
+    from opsec_platform.app.osint import scheduler
+    scheduler.start()
 
     trusted_origins = {o.lower() for o in settings.allowed_origins}
     if settings.base_url_explicit:
@@ -161,7 +172,7 @@ def create_app() -> FastAPI:
             "connect-src 'self'"
         )
 
-        if request.url.path.startswith(("/auth/", "/activity/", "/dashboard", "/health", "/scans", "/profile", "/login")) or request.url.path == "/":
+        if request.url.path.startswith(("/auth/", "/activity/", "/dashboard", "/health", "/scans", "/profile", "/login", "/targets", "/findings", "/reports", "/identity", "/intel", "/integrations", "/rules")) or request.url.path == "/":
             response.headers["Cache-Control"] = "no-store"
 
         if settings.cookie_secure:
