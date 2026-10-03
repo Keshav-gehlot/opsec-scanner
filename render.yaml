@@ -1,0 +1,41 @@
+# Render Blueprint for the platform API (https://render.com/docs/blueprint-spec).
+#
+# Documents the intended configuration of the existing "opsec-scanner-api"
+# service. Render only applies this file if the service is managed as a
+# Blueprint; otherwise compare it against the dashboard settings by hand.
+# Secret values are never stored here (sync: false = set in the dashboard).
+services:
+  - type: web
+    name: opsec-scanner-api
+    runtime: python
+    plan: free
+    # Editable install keeps rules/ beside the package (the scanner also
+    # falls back to ./rules in the working directory).
+    buildCommand: pip install --upgrade pip && pip install -e .
+    startCommand: uvicorn opsec_platform.app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health/ready
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      - key: PLATFORM_COOKIE_SECURE
+        value: "true"
+      - key: PLATFORM_BASE_URL
+        value: https://opsec-scanner-seven.vercel.app
+      - key: PLATFORM_ALLOWED_ORIGINS
+        value: https://opsec-scanner-seven.vercel.app
+      - key: PLATFORM_JWT_SECRET
+        sync: false
+      - key: PLATFORM_OAUTH_SESSION_SECRET
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      # Web workspace scanning (see opsec_platform/README.md for all limits).
+      - key: PLATFORM_WEB_SCANS_ENABLED
+        value: "true"
+      - key: PLATFORM_SCAN_MAX_CONCURRENT
+        value: "1"

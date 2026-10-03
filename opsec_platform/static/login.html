@@ -6,6 +6,7 @@
 <meta name="description" content="OPSEC Scanner security operations platform">
 <meta name="theme-color" content="#070a0d">
 <title>OPSEC Scanner</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
@@ -22,11 +23,11 @@
   <section class="hero">
     <div class="eyebrow">Security operations</div>
     <h1>Find the exposure before someone else does.</h1>
-    <p class="hero-lede">A focused workspace for account access, scan activity, and security signals. Keep authentication simple, evidence visible, and every important action auditable.</p>
+    <p class="hero-lede">Scan git history, uploaded media and documents for leaked credentials, identity data and infrastructure details. Track every finding across scans, and keep secret values out of the database.</p>
     <div class="signal-grid">
-      <div class="signal"><strong>Identity</strong><span>Local accounts plus configured enterprise sign-in providers.</span></div>
-      <div class="signal"><strong>Audit trail</strong><span>Login, logout, SSO, account, and scan activity stays queryable.</span></div>
-      <div class="signal"><strong>Session control</strong><span>Revoke active sessions instead of relying on a browser cookie disappearing.</span></div>
+      <div class="signal"><strong>Scan</strong><span>Public repositories, images, PDFs and Office files, or results uploaded from the CLI.</span></div>
+      <div class="signal"><strong>Prioritise</strong><span>Risk scored by severity, identity correlation and exposure.</span></div>
+      <div class="signal"><strong>Track</strong><span>New, still-open and resolved findings across every scan of a target.</span></div>
     </div>
   </section>
   <section class="auth-card">
@@ -35,7 +36,7 @@
       <button id="registerTab" class="tab" type="button" role="tab">Create account</button>
     </div>
     <h2 id="formTitle" class="auth-title">Welcome back</h2>
-    <p id="formSubtext" class="subtext">Sign in to review your OPSEC posture and account activity.</p>
+    <p id="formSubtext" class="subtext">Sign in to your OPSEC workspace.</p>
     <div id="notice" class="notice" role="status" aria-live="polite"></div>
     <form id="authForm" class="form">
       <div id="orgField" class="field" hidden>
@@ -62,37 +63,8 @@
     <p class="helper switch-helper"><span id="switchHint">Need an account?</span> <button id="switchAction" type="button" class="link-button">Create one</button></p>
   </section>
 </section>
-<section id="dashboardView" class="dashboard" aria-label="Account dashboard">
-  <div class="dashboard-card">
-    <div class="dashboard-head">
-      <div><div class="eyebrow">Security workspace</div><h1 class="dashboard-title">Account overview</h1><p class="subtext">Review identity, activity, and active sessions.</p></div>
-      <div class="button-row"><button id="refreshButton" class="secondary" type="button">Refresh</button><button id="logoutButton" class="secondary" type="button">Sign out</button></div>
-    </div>
-    <div class="stats">
-      <div class="stat"><span>Activity events</span><strong id="activityCount">—</strong></div>
-      <div class="stat"><span>Active sessions</span><strong id="sessionCount">—</strong></div>
-      <div class="stat"><span>Account state</span><strong id="securityScore">—</strong></div>
-      <div class="stat"><span>SSO providers</span><strong id="providerCount">—</strong></div>
-    </div>
-    <div class="dashboard-grid">
-      <section class="card"><h3>Identity</h3><div id="userCard" class="kv"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div></section>
-      <section class="card"><h3>Recent activity</h3><div id="activityList" class="activity"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div></section>
-    </div>
-    <div class="dashboard-grid">
-      <section class="card">
-        <div class="card-head"><div><h3>Active sessions</h3><p class="card-subtext">Browsers and devices currently signed in.</p></div><button id="revokeOthersButton" class="secondary compact" type="button">Revoke others</button></div>
-        <div id="sessionList" class="sessions"><div class="skeleton"></div><div class="skeleton"></div></div>
-      </section>
-      <section class="card"><h3>What to do next</h3><div class="kv"><div class="kv-row"><span>Review activity</span><strong>Investigate unfamiliar events</strong></div><div class="kv-row"><span>Review sessions</span><strong>Revoke browsers you no longer trust</strong></div><div class="kv-row"><span>Scan reporting</span><strong>Use the CLI opt-in reporting flow</strong></div></div></section>
-    </div>
-    <section id="adminCard" class="card admin-card" hidden>
-      <div class="card-head"><div><h3>Organization members</h3><p class="card-subtext">Manage active status and administrator access.</p></div></div>
-      <div id="memberList" class="members"></div>
-    </section>
-  </div>
-</section>
 </main>
 </div>
-<script src="/static/app.js" defer></script>
+<script src="/static/login.js" defer></script>
 </body>
 </html>

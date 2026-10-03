@@ -98,10 +98,17 @@ jobs:
 
       - name: Check platform browser bundle
         run: |
-          node --check opsec_platform/static/app.js
+          node --check opsec_platform/static/login.js
+          node --check opsec_platform/static/workspace.js
           python - <<'PY'
           from pathlib import Path
-          html = Path("opsec_platform/static/login.html").read_text()
-          assert 'style="' not in html, "platform login page must not contain inline style attributes"
-          assert "<script>" not in html, "platform login page must not contain inline scripts"
+          # The CSP (style-src/script-src 'self') blocks inline styles and
+          # scripts, so neither page nor script may rely on them.
+          for name in ("login.html", "app.html"):
+              html = Path("opsec_platform/static", name).read_text()
+              assert 'style="' not in html, f"{name} must not contain inline style attributes"
+              assert "<script>" not in html, f"{name} must not contain inline scripts"
+          for name in ("login.js", "workspace.js"):
+              js = Path("opsec_platform/static", name).read_text()
+              assert 'style="' not in js, f"{name} must not generate inline style attributes"
           PY

@@ -54,6 +54,7 @@ class UserOut(BaseModel):
     email: str
     display_name: str | None
     org_id: str | None
+    org_name: str | None = None
     auth_provider: str
     is_org_admin: bool
     is_active: bool
@@ -278,3 +279,79 @@ def update_org_member(
     ip, ua = _client_meta(request)
     log_activity(db, EventType.MEMBER_UPDATED, user_id=user.id, ip_address=ip, user_agent=ua, detail=f"member_updated={member.id}")
     return member
+
+
+# --------------------------------------------------------------------------
+# Personal access tokens (CLI uploads / activity reporting)
+# --------------------------------------------------------------------------
+
+class TokenCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    expires_in_days: int | None = Field(default=90, ge=1)
+
+
+class TokenOut(BaseModel):
+    id: str
+    name: str
+    prefix: str
+    created_at: datetime
+    expires_at: datetime | None
+    last_used_at: datetime | None
+    model_config = ConfigDict(from_attributes=True)
+
+
+@router.get("/tokens", response_model=list[TokenOut])
+def list_tokens(db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
+    from opsec_platform.app.models import ApiToken
+
+    return (
+        db.query(ApiToken)
+        .filter(ApiToken.user_id == user.id, ApiToken.revoked.is_(False))
+        .order_by(ApiToken.created_at.desc())
+        .all()
+    )
+
+
+@router.post("/tokens", status_code=status.HTTP_201_CREATED)
+def create_token(payload: TokenCreateRequest, request: Request, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
+    import secrets as _secrets
+    from datetime import timedelta
+
+    from opsec_platform.app.config import get_settings
+    from opsec_platform.app.dependencies import API_TOKEN_PREFIX, hash_api_token
+    from opsec_platform.app.models import ApiToken
+
+    active = db.query(ApiToken).filter(ApiToken.user_id == user.id, ApiToken.revoked.is_(False)).count()
+    if active >= 10:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Revoke an existing token first (limit 10).")
+    days = min(payload.expires_in_days or get_settings().api_token_max_days, get_settings().api_token_max_days)
+    plaintext = API_TOKEN_PREFIX + _secrets.token_urlsafe(32)
+    row = ApiToken(
+        user_id=user.id,
+        name=" ".join(payload.name.split()),
+        token_hash=hash_api_token(plaintext),
+        prefix=plaintext[: len(API_TOKEN_PREFIX) + 6],
+        expires_at=datetime.now(timezone.utc) + timedelta(days=days),
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    ip, ua = _client_meta(request)
+    log_activity(db, EventType.TOKEN_CREATED, user_id=user.id, ip_address=ip, user_agent=ua, detail=f"token '{row.name}'")
+    body = TokenOut.model_validate(row, from_attributes=True).model_dump(mode="json")
+    body["token"] = plaintext  # shown exactly once
+    return body
+
+
+@router.delete("/tokens/{token_id}", status_code=status.HTTP_204_NO_CONTENT)
+def revoke_token(token_id: str, request: Request, db: DBSession = Depends(get_db), user: User = Depends(get_current_user)):
+    from opsec_platform.app.models import ApiToken
+
+    row = db.query(ApiToken).filter(ApiToken.id == token_id, ApiToken.user_id == user.id).first()
+    if row is None or row.revoked:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Token not found.")
+    row.revoked = True
+    db.commit()
+    ip, ua = _client_meta(request)
+    log_activity(db, EventType.TOKEN_REVOKED, user_id=user.id, ip_address=ip, user_agent=ua, detail=f"token '{row.name}'")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

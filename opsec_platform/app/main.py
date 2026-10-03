@@ -8,18 +8,18 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.staticfiles import StaticFiles
 
-from opsec_platform.app import activity_routes, auth_routes, oauth_routes
+from opsec_platform.app import activity_routes, auth_routes, oauth_routes, scan_routes
 from opsec_platform.app.config import get_settings
 from opsec_platform.app.database import init_db
 from opsec_platform.app.dependencies import configure_db
 from opsec_platform.app.oauth_providers import configured_providers
 
 
-APP_VERSION = "0.2.2"
+APP_VERSION = "0.3.0"
 logger = logging.getLogger(__name__)
 
 
@@ -36,6 +36,13 @@ def deployed_commit() -> str | None:
     return None
 
 
+def scanner_status() -> dict:
+    from opsec_platform.app.scan_service import rules_status
+
+    status = rules_status()
+    return {"rules_loaded": status["rules"], "ok": status["ok"], "web_scans_enabled": get_settings().web_scans_enabled}
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(title="OPSEC Scanner Platform", version=APP_VERSION)
@@ -45,7 +52,7 @@ def create_app() -> FastAPI:
             CORSMiddleware,
             allow_origins=list(settings.allowed_origins),
             allow_credentials=True,
-            allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+            allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
             allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
         )
 
@@ -87,9 +94,22 @@ def create_app() -> FastAPI:
         secure=settings.cookie_secure,
     )
 
+    # Scan jobs run in-process; anything left queued/running by a previous
+    # process can never finish, so mark it failed instead of spinning forever.
+    db = _SessionLocal()
+    try:
+        from opsec_platform.app.scan_service import recover_stale_scans
+        recover_stale_scans(db)
+    except Exception:
+        logger.exception("Could not recover stale scans at startup")
+    finally:
+        db.close()
+
     app.include_router(auth_routes.router)
     app.include_router(oauth_routes.router)
     app.include_router(activity_routes.router)
+    app.include_router(scan_routes.router)
+    app.include_router(scan_routes.profile_router)
 
     trusted_origins = {o.lower() for o in settings.allowed_origins}
     if settings.base_url_explicit:
@@ -141,24 +161,52 @@ def create_app() -> FastAPI:
             "connect-src 'self'"
         )
 
-        if request.url.path.startswith(("/auth/", "/activity/", "/dashboard", "/health")):
+        if request.url.path.startswith(("/auth/", "/activity/", "/dashboard", "/health", "/scans", "/profile", "/login")) or request.url.path == "/":
             response.headers["Cache-Control"] = "no-store"
 
         if settings.cookie_secure:
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         return response
 
+    def page(name: str) -> FileResponse:
+        return FileResponse(static_dir / name, media_type="text/html")
+
+    def has_valid_session(request: Request) -> bool:
+        from opsec_platform.app.dependencies import SESSION_COOKIE_NAME, get_current_user
+        from fastapi import HTTPException
+
+        if not request.cookies.get(SESSION_COOKIE_NAME):
+            return False
+        db = _SessionLocal()
+        try:
+            get_current_user(request, db)
+            return True
+        except HTTPException:
+            return False
+        finally:
+            db.close()
+
+    # The sign-in page and the workspace are separate documents, and the
+    # server decides which one to send. Previously /dashboard served the
+    # login markup and JavaScript swapped views after load, which flashed
+    # the sign-in form on every visit.
     @app.get("/", include_in_schema=False)
-    def root():
-        return FileResponse(static_dir / "login.html")
+    def root(request: Request):
+        if has_valid_session(request):
+            return RedirectResponse("/dashboard", status_code=302)
+        return page("login.html")
 
     @app.get("/login", include_in_schema=False)
-    def login_page():
-        return FileResponse(static_dir / "login.html")
+    def login_page(request: Request):
+        if has_valid_session(request):
+            return RedirectResponse("/dashboard", status_code=302)
+        return page("login.html")
 
     @app.get("/dashboard", include_in_schema=False)
-    def dashboard_page():
-        return FileResponse(static_dir / "login.html")
+    def dashboard_page(request: Request):
+        if not has_valid_session(request):
+            return RedirectResponse("/login", status_code=302)
+        return page("app.html")
 
     def database_check() -> str:
         from sqlalchemy import text
@@ -185,6 +233,7 @@ def create_app() -> FastAPI:
                 "commit": deployed_commit(),
                 "database": database,
                 "sso_providers_configured": configured_providers(settings),
+                "scanner": scanner_status(),
             },
         )
 

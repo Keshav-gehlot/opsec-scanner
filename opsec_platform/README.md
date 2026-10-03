@@ -1,6 +1,8 @@
-# OPSEC Scanner Platform (auth + activity tracking)
+# OPSEC Scanner Platform (web workspace, auth + activity tracking)
 
-A separate, optional backend: organization-provisioned username/password login, SSO via
+A separate, optional backend: a browser workspace for the scanner (Operations Center,
+scan history, findings explorer, server-side scans of public repositories and uploaded
+media, CLI result uploads), organization-provisioned username/password login, SSO via
 Google/GitHub/Microsoft/Apple, and an activity log. This is a genuine architectural
 addition, not a bolt-on — the CLI and its reports remain fully local-first and don't
 require this to exist. Nothing here makes the scanner itself phone home.
@@ -153,6 +155,47 @@ This is a working reference implementation, not a hardened production deployment
 - **SQLite is fine for evaluation, not for concurrent production load.** Point
   `PLATFORM_DATABASE_URL` at Postgres for anything beyond a small pilot.
 
+## Web workspace
+
+After signing in, `/dashboard` is the workspace (`app.html` + `workspace.js`). The server
+redirects `/` and `/login` to `/dashboard` for a valid session and `/dashboard` to `/login`
+without one, so neither page renders the other's markup.
+
+| Page | What it does | API |
+| --- | --- | --- |
+| Operations Center | Open findings by severity (latest scan per target), trend, top rules, new/resolved per target | `GET /scans/overview` |
+| New scan → Public repository | Shallow-clones an allow-listed public HTTPS repo and runs the git engine | `POST /scans/git` |
+| New scan → Images & documents | Uploads files and runs the media engine (PDF/Office always; EXIF needs `exiftool`, OCR needs `tesseract` on the server) | `POST /scans/media` |
+| New scan → Import CLI results | Imports a `--json-output` file | `POST /scans/import` |
+| Scan history / scan detail | Status, stats, diff vs the previous scan of the same label, findings explorer (filter, search, sort, paginate), JSON/CSV/SARIF export, delete | `GET /scans`, `/scans/{id}`, `/findings`, `/diff`, `/export` |
+| Identity profile | Web version of `target_profile.yaml`, used to score scans started from the web | `GET/PUT /profile/identity` |
+| CLI access tokens | Personal access tokens for `--report-activity` / `--upload-findings` | `GET/POST/DELETE /auth/tokens` |
+| Account & sessions / Organization | Identity, sessions, activity; member management for org admins | existing `/auth/*` routes |
+
+**Data handling.** Raw matched values are never stored. Each finding keeps a redacted
+preview (a few leading/trailing characters at most), its length, origin and context, and a
+keyed fingerprint (HMAC-SHA256, key from `PLATFORM_FINGERPRINT_SECRET` or derived from
+`PLATFORM_JWT_SECRET`) used to compare scans. Free-form CLI metadata is dropped on import.
+Uploaded files and clones live in a temp directory for the duration of the scan only.
+
+**Server-side scan safeguards.** Git URLs must be `https://<allowed host>/<owner>/<repo>`
+with no credentials, port, query or fragment; git runs with an empty environment
+(`GIT_ALLOW_PROTOCOL=https`, no prompts, no redirects, no system/global config), a
+shallow depth, a timeout and a size cap. Uploads are limited by type, count and size.
+Each user can have two scans in flight and a daily scan quota; `PLATFORM_WEB_SCANS_ENABLED=false`
+turns server-side scans off. Jobs run in a thread pool inside the API process, so a restart
+orphans running jobs; they are marked failed at the next start (and when polled after 30 minutes).
+
+**Access tokens** (`opsec_pat_…`) are stored as SHA-256 hashes, shown once, expire, and are
+accepted only by scan and activity-report routes — never by account, session, token or
+organization management.
+
+**CSRF.** Unsafe requests (POST/PUT/PATCH/DELETE) whose `Origin` (or `Referer`) is not
+`PLATFORM_BASE_URL`, a `PLATFORM_ALLOWED_ORIGINS` entry, or the request's own host are
+rejected with 403. Non-browser clients send neither header and are unaffected.
+
+All limits are environment variables; see `.env.example`.
+
 ## How this connects to the CLI
 
 The CLI itself remains fully local-first and does not talk to this platform by default —
@@ -167,6 +210,16 @@ opsec-scan --repo . \
   --report-activity https://platform.example.com \
   --report-activity-token "$OPSEC_PLATFORM_TOKEN" \
   --target-label my-repo
+```
+
+To see the findings themselves in the web workspace, add `--upload-findings`. Use a CLI
+access token from the workspace (**CLI access tokens** page) rather than a browser session
+token. Only redacted findings are sent: the matched value is replaced by the redaction
+placeholder before upload.
+
+```bash
+export OPSEC_PLATFORM_TOKEN=opsec_pat_...
+opsec-scan --repo . --report-activity https://platform.example.com --upload-findings --target-label my-repo
 ```
 
 If the platform is unreachable, the token is invalid, or the token is missing entirely, the

@@ -46,6 +46,11 @@ def get_current_user(request: Request, db: DBSession = Depends(get_db)) -> User:
     token = _extract_token(request)
     if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated.")
+    if token.startswith(API_TOKEN_PREFIX):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access tokens can only be used for scan uploads and activity reporting.",
+        )
 
     try:
         claims = decode_session_token(token)
@@ -77,3 +82,43 @@ def get_current_user_optional(request: Request, db: DBSession = Depends(get_db))
         return get_current_user(request, db)
     except HTTPException:
         return None
+
+
+API_TOKEN_PREFIX = "opsec_pat_"
+
+
+def hash_api_token(token: str) -> str:
+    import hashlib
+
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def get_api_user(request: Request, db: DBSession = Depends(get_db)) -> User:
+    """Authenticates either a browser session or a personal access token.
+
+    Used only by the machine-facing routes (scan import/upload, activity
+    reporting, read-only scan queries). Account, session and organization
+    management keep using get_current_user, which rejects access tokens,
+    so a leaked CLI token cannot be used to take over the account."""
+    token = _extract_token(request)
+    if token and token.startswith(API_TOKEN_PREFIX):
+        from opsec_platform.app.models import ApiToken
+
+        row = db.query(ApiToken).filter(ApiToken.token_hash == hash_api_token(token)).first()
+        now = datetime.now(timezone.utc)
+        if row is None or row.revoked:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or revoked access token.")
+        if row.expires_at is not None and row.expires_at.replace(tzinfo=timezone.utc) < now:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Access token expired.")
+        user = db.query(User).filter(User.id == row.user_id).first()
+        if user is None or not user.is_active:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive.")
+        last = row.last_used_at.replace(tzinfo=timezone.utc) if row.last_used_at else None
+        if last is None or (now - last).total_seconds() > 60:
+            row.last_used_at = now
+            db.commit()
+        request.state.auth_kind = "api_token"
+        return user
+    user = get_current_user(request, db)
+    request.state.auth_kind = "session"
+    return user
