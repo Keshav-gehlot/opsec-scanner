@@ -65,6 +65,7 @@ def create_app() -> FastAPI:
     if bootstrap_email and bootstrap_password:
         from opsec_platform.app.models import Org, User
         from opsec_platform.app.security import hash_password
+        from sqlalchemy.exc import IntegrityError
 
         db = _SessionLocal()
         try:
@@ -86,6 +87,12 @@ def create_app() -> FastAPI:
                 ))
                 db.commit()
             elif not admin.is_org_admin:
+                admin.is_org_admin = True
+                db.commit()
+        except IntegrityError:
+            db.rollback()
+            admin = db.query(User).filter(User.email == bootstrap_email).first()
+            if admin is not None and not admin.is_org_admin:
                 admin.is_org_admin = True
                 db.commit()
         finally:
