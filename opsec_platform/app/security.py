@@ -33,8 +33,8 @@ def _require_jwt_secret() -> str:
         raise RuntimeError(
             "PLATFORM_JWT_SECRET is not set. Sessions cannot be issued without a signing key."
         )
-    if len(secret.encode("utf-8")) < _MIN_JWT_SECRET_BYTES:
-        raise RuntimeError("PLATFORM_JWT_SECRET must contain at least 32 UTF-8 bytes.")
+    if get_settings().cookie_secure and len(secret.encode("utf-8")) < _MIN_JWT_SECRET_BYTES:
+        raise RuntimeError("PLATFORM_JWT_SECRET must contain at least 32 UTF-8 bytes in HTTPS deployments.")
     return secret
 
 
