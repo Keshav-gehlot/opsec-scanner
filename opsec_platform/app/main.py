@@ -24,8 +24,10 @@ logger = logging.getLogger(__name__)
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    if not settings.jwt_secret or len(settings.jwt_secret.encode("utf-8")) < 32:
-        raise RuntimeError("PLATFORM_JWT_SECRET must be configured and contain at least 32 UTF-8 bytes.")
+    if not settings.jwt_secret:
+        raise RuntimeError("PLATFORM_JWT_SECRET must be configured before the platform starts.")
+    if settings.cookie_secure and len(settings.jwt_secret.encode("utf-8")) < 32:
+        raise RuntimeError("PLATFORM_JWT_SECRET must contain at least 32 UTF-8 bytes in HTTPS deployments.")
     app = FastAPI(title="OPSEC Scanner Platform", version=APP_VERSION)
 
     if settings.allowed_origins:
