@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -8,8 +8,14 @@ from opsec_platform.app.config import get_settings
 from opsec_platform.app.models import Base
 
 
+def normalize_database_url(url: str) -> str:
+    if url.startswith("postgres://"):
+        return "postgresql://" + url[len("postgres://"):]
+    return url
+
+
 def make_engine(database_url: str | None = None):
-    url = database_url or get_settings().database_url
+    url = normalize_database_url(database_url or get_settings().database_url)
     if url.startswith("sqlite"):
         connect_args = {"check_same_thread": False}
         # SQLite's :memory: database is connection-scoped by default —
@@ -32,3 +38,12 @@ def make_session_factory(engine):
 
 def init_db(engine) -> None:
     Base.metadata.create_all(bind=engine)
+
+    inspector = inspect(engine)
+    if "users" in inspector.get_table_names():
+        columns = {column["name"] for column in inspector.get_columns("users")}
+        if "is_org_admin" not in columns:
+            with engine.begin() as connection:
+                connection.execute(
+                    text("ALTER TABLE users ADD COLUMN is_org_admin BOOLEAN NOT NULL DEFAULT FALSE")
+                )
