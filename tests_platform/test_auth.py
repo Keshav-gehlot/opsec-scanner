@@ -7,7 +7,7 @@ import os
 import pytest
 from fastapi.testclient import TestClient
 
-os.environ.setdefault("PLATFORM_JWT_SECRET", "test-secret-do-not-use-in-prod")
+os.environ.setdefault("PLATFORM_JWT_SECRET", "ci-test-secret-012345678901234567890123456789")
 os.environ.setdefault("PLATFORM_COOKIE_SECURE", "false")  # TestClient/local dev use plain http
 
 
