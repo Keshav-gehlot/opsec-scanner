@@ -41,13 +41,11 @@ class Settings:
     login_ip_rate_limit_attempts: int = field(default_factory=lambda: int(_get("PLATFORM_LOGIN_IP_RATE_LIMIT_ATTEMPTS", "20")))
     login_ip_rate_limit_window_minutes: int = field(default_factory=lambda: int(_get("PLATFORM_LOGIN_IP_RATE_LIMIT_WINDOW_MINUTES", "15")))
 
-    # Render's managed PostgreSQL connection is authoritative in production.
-    # Keep PLATFORM_DATABASE_URL as a local/test override for environments
-    # that do not provide DATABASE_URL, but never let a stale platform-specific
-    # value shadow Render's managed connection string.
+    # Explicit app configuration wins so local/test fixtures can force SQLite.
+    # Render/Vercel's conventional DATABASE_URL remains the production fallback.
     database_url: str = field(default_factory=lambda: (
-        _get("DATABASE_URL")
-        or _get("PLATFORM_DATABASE_URL")
+        _get("PLATFORM_DATABASE_URL")
+        or _get("DATABASE_URL")
         or "sqlite:///./platform.db"
     ))
 
