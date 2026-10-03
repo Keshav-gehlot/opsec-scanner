@@ -24,9 +24,6 @@ logger = logging.getLogger(__name__)
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    if not settings.jwt_secret:
-        raise RuntimeError("PLATFORM_JWT_SECRET must be configured before the platform starts.")
-
     app = FastAPI(title="OPSEC Scanner Platform", version=APP_VERSION)
 
     if settings.allowed_origins:
