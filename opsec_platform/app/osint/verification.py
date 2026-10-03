@@ -108,17 +108,32 @@ def check_well_known(domain: str, token: str, fetch=net.safe_request) -> bool:
 
 
 def check_github_gist(handle: str, token: str, api_get=net.api_get) -> bool:
+    """True if a public gist owned by `handle` mentions the token.
+
+    Tries the REST API first (authenticated with PLATFORM_GITHUB_TOKEN when
+    set). Shared hosting IPs often exhaust GitHub's 60-requests/hour
+    anonymous API limit, so it falls back to the handle's public gist
+    listing page, which only shows gists owned by that account."""
+    import os
+
+    headers = {"Accept": "application/vnd.github+json"}
+    gh_token = os.environ.get("PLATFORM_GITHUB_TOKEN", "").strip()
+    if gh_token:
+        headers["Authorization"] = f"Bearer {gh_token}"
     try:
-        response = api_get(f"https://api.github.com/users/{handle}/gists", params={"per_page": 30})
+        response = api_get(f"https://api.github.com/users/{handle}/gists", params={"per_page": 30}, headers=headers)
+        if response.status_code == 200:
+            for gist in response.json():
+                owner = (gist.get("owner") or {}).get("login", "")
+                if owner.lower() == handle.lower() and token in (gist.get("description") or ""):
+                    return True
+    except Exception:
+        pass
+    try:
+        page = api_get(f"https://gist.github.com/{handle}", params={"direction": "desc", "sort": "created"})
+        return page.status_code == 200 and token in page.text
     except Exception:
         return False
-    if response.status_code != 200:
-        return False
-    for gist in response.json():
-        owner = (gist.get("owner") or {}).get("login", "")
-        if owner.lower() == handle.lower() and token in (gist.get("description") or ""):
-            return True
-    return False
 
 
 def instructions(kind: str, value: str, token: str) -> dict:

@@ -413,3 +413,34 @@ def test_validate_url_rejects(url):
 
     with pytest.raises(net.UnsafeTarget):
         net.validate_url(url)
+
+
+def test_gist_verification_falls_back_to_listing_page_when_api_is_rate_limited():
+    from opsec_platform.app.osint import verification
+
+    def api_get(url, params=None, headers=None, timeout=None):
+        if "api.github.com" in url:
+            return FakeResponse(status=403, json_data={"message": "API rate limit exceeded"})
+        assert url == "https://gist.github.com/Keshav-gehlot"
+        return FakeResponse(body="<html>opsec-scanner-verify TOKEN123</html>")
+
+    assert verification.check_github_gist("Keshav-gehlot", "TOKEN123", api_get=api_get)
+    assert not verification.check_github_gist("Keshav-gehlot", "OTHER", api_get=api_get)
+
+
+def test_gist_verification_uses_api_owner_check():
+    from opsec_platform.app.osint import verification
+
+    def api_get(url, params=None, headers=None, timeout=None):
+        if "api.github.com" in url:
+            return FakeResponse(json_data=[{"owner": {"login": "someone-else"}, "description": "TOKEN123"}])
+        return FakeResponse(status=404)
+
+    assert not verification.check_github_gist("Keshav-gehlot", "TOKEN123", api_get=api_get)
+
+
+def test_handle_collector_reports_rate_limit():
+    from opsec_platform.app.osint import collectors
+
+    result = collectors.github_handle("x", api_get=lambda *a, **k: FakeResponse(status=403, json_data={}))
+    assert any("PLATFORM_GITHUB_TOKEN" in n for n in result.notes)

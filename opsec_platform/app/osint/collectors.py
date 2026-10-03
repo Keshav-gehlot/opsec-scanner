@@ -341,6 +341,13 @@ def _github_headers(extra: dict | None = None) -> dict:
     return {**headers, **(extra or {})}
 
 
+def _github_limit_note(status: int) -> str:
+    if status in (403, 429):
+        return ("GitHub API rate limit reached for this server's shared IP; set PLATFORM_GITHUB_TOKEN "
+                "for a 5,000 requests/hour limit.")
+    return f"GitHub API returned HTTP {status}."
+
+
 def github_code_search(term: str, api_get=net.api_get) -> CollectorResult:
     result = CollectorResult()
     if not os.environ.get("PLATFORM_GITHUB_TOKEN", "").strip():
@@ -374,6 +381,8 @@ def github_handle(handle: str, api_get=net.api_get) -> CollectorResult:
     try:
         gists = api_get(f"https://api.github.com/users/{handle}/gists", params={"per_page": 30}, headers=_github_headers(), timeout=15)
         gist_list = gists.json() if gists.status_code == 200 else []
+        if gists.status_code != 200:
+            result.notes.append(_github_limit_note(gists.status_code))
     except Exception:
         gist_list = []
     files = 0
@@ -393,6 +402,8 @@ def github_handle(handle: str, api_get=net.api_get) -> CollectorResult:
         repos = api_get(f"https://api.github.com/users/{handle}/repos", params={"per_page": 100, "sort": "pushed"},
                         headers=_github_headers(), timeout=15)
         repo_list = repos.json() if repos.status_code == 200 else []
+        if repos.status_code != 200:
+            result.notes.append(_github_limit_note(repos.status_code))
     except Exception:
         repo_list = []
     result.intel["github"] = {
