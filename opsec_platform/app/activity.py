@@ -14,6 +14,8 @@ class EventType:
     LOGIN_RATE_LIMITED = "login_rate_limited"
     OAUTH_LOGIN_SUCCESS = "oauth_login_success"
     OAUTH_LOGIN_FAILED = "oauth_login_failed"
+    OAUTH_LINK_REQUIRED = "oauth_link_required"
+    OAUTH_LINKED = "oauth_linked"
     LOGOUT = "logout"
     USER_CREATED = "user_created"
     MEMBER_UPDATED = "member_updated"
@@ -21,7 +23,7 @@ class EventType:
 
     ALL = {
         LOGIN_SUCCESS, LOGIN_FAILED, LOGIN_RATE_LIMITED, OAUTH_LOGIN_SUCCESS, OAUTH_LOGIN_FAILED,
-        LOGOUT, USER_CREATED, MEMBER_UPDATED, SCAN_REPORTED,
+        OAUTH_LINK_REQUIRED, OAUTH_LINKED, LOGOUT, USER_CREATED, MEMBER_UPDATED, SCAN_REPORTED,
     }
 
 

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session as DBSession
 
 from opsec_platform.app.activity import EventType, log_activity
 from opsec_platform.app.dependencies import SESSION_COOKIE_NAME, _extract_token, get_current_user, get_current_user_optional, get_db
+from opsec_platform.app.identities import complete_pending_link
 from opsec_platform.app.models import Org, Session as SessionModel, User
 from opsec_platform.app.security import create_session_token, decode_session_token, hash_password, verify_password
 
@@ -148,8 +149,11 @@ def login(payload: LoginRequest, request: Request, response: Response, db: DBSes
 
     user = db.query(User).filter(User.email == email).first()
     invalid = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password.")
-    if user is None or user.auth_provider != "local" or not user.hashed_password:
-        log_activity(db, EventType.LOGIN_FAILED, ip_address=ip, user_agent=ua, detail=f"email={email} (no such local account)")
+    # Any account with a password can use it, regardless of which SSO
+    # identities are also linked. (Gating on auth_provider == "local" is what
+    # locked out password accounts that had been converted by SSO linking.)
+    if user is None or not user.hashed_password:
+        log_activity(db, EventType.LOGIN_FAILED, ip_address=ip, user_agent=ua, detail=f"email={email} (no password account)")
         raise invalid
     if not verify_password(payload.password, user.hashed_password):
         log_activity(db, EventType.LOGIN_FAILED, user_id=user.id, ip_address=ip, user_agent=ua, detail="wrong password")
@@ -160,6 +164,10 @@ def login(payload: LoginRequest, request: Request, response: Response, db: DBSes
 
     _issue_session(db, user, request, response)
     log_activity(db, EventType.LOGIN_SUCCESS, user_id=user.id, ip_address=ip, user_agent=ua)
+
+    linked = complete_pending_link(db, request, user)
+    if linked:
+        log_activity(db, EventType.OAUTH_LINKED, user_id=user.id, ip_address=ip, user_agent=ua, detail=linked)
     return user
 
 

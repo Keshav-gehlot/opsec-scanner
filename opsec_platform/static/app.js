@@ -39,5 +39,6 @@ async function revokeOthers(){try{const result=await api("/auth/sessions/revoke-
 $("refreshButton").addEventListener("click",loadDashboard);
 $("revokeOthersButton").addEventListener("click",revokeOthers);
 $("logoutButton").addEventListener("click",async()=>{try{await api("/auth/logout",{method:"POST"});}finally{window.location.assign("/login");}});
-function init(){if(location.pathname==="/dashboard"){$("authView").hidden=true;$("dashboardView").classList.add("visible");loadHealth();loadDashboard();return;}$("authView").hidden=false;$("dashboardView").classList.remove("visible");setMode("login");loadHealth();}
+function init(){if(location.pathname==="/dashboard"){$("authView").hidden=true;$("dashboardView").classList.add("visible");loadHealth();loadDashboard();return;}$("authView").hidden=false;$("dashboardView").classList.remove("visible");setMode("login");loadHealth();showSsoNotice();}
+function showSsoNotice(){const code=new URLSearchParams(location.search).get("sso");const messages={link_required:"An account with this email already exists. Sign in with your password once to link Google to it.",failed:"Single sign-on did not complete. Try again."};if(code&&messages[code]){showNotice(code==="link_required"?"info":"error",messages[code]);history.replaceState(null,"",location.pathname);}}
 init();
