@@ -139,6 +139,12 @@ def test_report_scan_activity_endpoint(client):
     assert events.get("scan_reported") == "3 CRITICAL findings in my-repo"
 
 
+def test_legacy_postgres_url_is_normalized():
+    from opsec_platform.app.database import normalize_database_url
+    assert normalize_database_url("postgres://user:pass@host/db") == "postgresql://user:pass@host/db"
+    assert normalize_database_url("postgresql://user:pass@host/db") == "postgresql://user:pass@host/db"
+
+
 def test_health_endpoint_reports_no_sso_configured_by_default(client):
     r = client.get("/health")
     assert r.status_code == 200
