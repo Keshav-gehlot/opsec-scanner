@@ -141,8 +141,33 @@ def test_report_scan_activity_endpoint(client):
 
 def test_legacy_postgres_url_is_normalized():
     from opsec_platform.app.database import normalize_database_url
-    assert normalize_database_url("postgres://user:pass@host/db") == "postgresql://user:pass@host/db"
-    assert normalize_database_url("postgresql://user:pass@host/db") == "postgresql://user:pass@host/db"
+    assert normalize_database_url(" postgres://user:pass@host/db\\n") == "postgresql://user:pass@host/db"
+    assert normalize_database_url("  \"postgresql://user:pass@host/db\"  ") == "postgresql://user:pass@host/db"
+
+
+def test_invalid_database_url_fails_without_echoing_credentials():
+    from opsec_platform.app.database import normalize_database_url
+    with pytest.raises(RuntimeError, match="not a valid SQLAlchemy URL"):
+        normalize_database_url("not-a-database-url")
+
+
+def test_empty_database_url_fails_clearly():
+    from opsec_platform.app.database import normalize_database_url
+    with pytest.raises(RuntimeError, match="Database URL is empty"):
+        normalize_database_url("")
+
+
+def test_init_db_adds_is_org_admin_to_legacy_users_table(tmp_path):
+    from sqlalchemy import create_engine, inspect, text
+    from opsec_platform.app.database import init_db
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'old.db'}")
+    with engine.begin() as connection:
+        connection.execute(text("CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT)"))
+
+    init_db(engine)
+
+    assert "is_org_admin" in {column["name"] for column in inspect(engine).get_columns("users")}
 
 
 def test_health_endpoint_reports_no_sso_configured_by_default(client):
