@@ -141,7 +141,7 @@ def test_report_scan_activity_endpoint(client):
 
 def test_legacy_postgres_url_is_normalized():
     from opsec_platform.app.database import normalize_database_url
-    assert normalize_database_url(" postgres://user:pass@host/db\\n") == "postgresql://user:pass@host/db"
+    assert normalize_database_url(" postgres://user:pass@host/db\n") == "postgresql://user:pass@host/db"
     assert normalize_database_url("  \"postgresql://user:pass@host/db\"  ") == "postgresql://user:pass@host/db"
 
 

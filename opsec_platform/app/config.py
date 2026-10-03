@@ -15,6 +15,9 @@ import os
 from dataclasses import dataclass, field
 
 
+MIN_SECRET_BYTES = 32
+
+
 def _get(name: str, default: str = "") -> str:
     return os.environ.get(name, default)
 
@@ -49,7 +52,15 @@ class Settings:
         or "sqlite:///./platform.db"
     ))
 
+    # Dedicated key for the short-lived Authlib OAuth state cookie
+    # ("opsec_oauth"). Deliberately separate from PLATFORM_JWT_SECRET and
+    # never derived from an OAuth provider's client secret.
+    oauth_session_secret: str = field(default_factory=lambda: _get("PLATFORM_OAUTH_SESSION_SECRET"))
+
     base_url: str = field(default_factory=lambda: _get("PLATFORM_BASE_URL", "http://localhost:8000"))
+    # True only when PLATFORM_BASE_URL was actually supplied, as opposed to
+    # the localhost default above.
+    base_url_explicit: bool = field(default_factory=lambda: bool(_get("PLATFORM_BASE_URL").strip()))
     cookie_secure: bool = field(default_factory=lambda: _get("PLATFORM_COOKIE_SECURE", "true").lower() != "false")
     allowed_origins: tuple[str, ...] = field(default_factory=lambda: tuple(o.strip().rstrip("/") for o in _get("PLATFORM_ALLOWED_ORIGINS").split(",") if o.strip()))
 
@@ -64,6 +75,35 @@ class Settings:
 
     def oauth_providers(self) -> dict:
         return {"google": self.google, "github": self.github, "microsoft": self.microsoft, "apple": self.apple}
+
+    def oauth_config_problems(self) -> list[str]:
+        """Deployment misconfigurations that make SSO unsafe to run.
+
+        Only enforced for HTTPS deployments (cookie_secure=True); local
+        plain-http development keeps working with no extra variables.
+        Messages name variables only and never include their values.
+        """
+        if not self.cookie_secure:
+            return []
+        problems: list[str] = []
+        secret = self.oauth_session_secret
+        if len(secret.encode("utf-8")) < MIN_SECRET_BYTES:
+            problems.append(
+                f"PLATFORM_OAUTH_SESSION_SECRET must be set to at least {MIN_SECRET_BYTES} random bytes."
+            )
+        elif secret == self.jwt_secret or any(
+            secret == cfg.client_secret for cfg in self.oauth_providers().values() if cfg.client_secret
+        ):
+            problems.append(
+                "PLATFORM_OAUTH_SESSION_SECRET must not reuse PLATFORM_JWT_SECRET or an OAuth client secret."
+            )
+        if not self.base_url_explicit:
+            problems.append(
+                "PLATFORM_BASE_URL must be set to the public origin users sign in through."
+            )
+        elif not self.base_url.startswith("https://"):
+            problems.append("PLATFORM_BASE_URL must use https:// in HTTPS deployments.")
+        return problems
 
 
 def get_settings() -> Settings:

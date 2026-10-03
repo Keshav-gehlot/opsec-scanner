@@ -85,4 +85,8 @@ def build_oauth_registry(settings: Settings) -> OAuth:
 
 
 def configured_providers(settings: Settings) -> list[str]:
+    # A provider with credentials is still unusable while the deployment
+    # is missing its OAuth session secret or public base URL.
+    if settings.oauth_config_problems():
+        return []
     return [name for name, cfg in settings.oauth_providers().items() if cfg.is_configured]

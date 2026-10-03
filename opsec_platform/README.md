@@ -140,6 +140,14 @@ This is a working reference implementation, not a hardened production deployment
   second, complementary layer before exposing this publicly.
 - **`PLATFORM_JWT_SECRET` must be a real secret, generated once, and kept out of source
   control.** Anyone with this value can forge valid sessions for any user.
+- **SSO in HTTPS deployments requires two more variables.** `PLATFORM_OAUTH_SESSION_SECRET`
+  (≥32 random bytes, distinct from the JWT secret and every OAuth client secret) signs the
+  OAuth state cookie, and `PLATFORM_BASE_URL` (the public `https://` origin, e.g. the Vercel
+  URL) builds callback URLs — they are never derived from request headers. If either is
+  missing, SSO routes return 503, `/health` reports no SSO providers, and the reason is logged
+  at startup. Local `http://localhost` development needs neither.
+- **`/health` reports `commit`** (from `RENDER_GIT_COMMIT` / `VERCEL_GIT_COMMIT_SHA`), which is
+  how to confirm which build is actually live — `version` is a hand-maintained string.
 - **HTTPS is not optional.** `PLATFORM_COOKIE_SECURE=true` (the default) requires it —
   don't flip it to `false` anywhere except local `http://localhost` development.
 - **SQLite is fine for evaluation, not for concurrent production load.** Point
