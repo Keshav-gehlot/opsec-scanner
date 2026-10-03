@@ -173,7 +173,24 @@ def backfill_user_identities(engine) -> None:
         logger.info("Backfilled linked sign-in identities for %d legacy account(s).", len(legacy))
 
 
+def ensure_column(engine, table: str, column: str, ddl: str) -> None:
+    """Add a column to an existing table if it is missing (create_all never
+    alters tables). Safe when several workers start at once."""
+    inspector = inspect(engine)
+    if table not in inspector.get_table_names():
+        return
+    if column in {c["name"] for c in inspector.get_columns(table)}:
+        return
+    try:
+        with engine.begin() as connection:
+            connection.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
+    except Exception:
+        if column not in {c["name"] for c in inspect(engine).get_columns(table)}:
+            raise
+
+
 def init_db(engine) -> None:
     Base.metadata.create_all(bind=engine)
     ensure_schema_compat(engine)
+    ensure_column(engine, "findings", "status", "VARCHAR NOT NULL DEFAULT 'open'")
     backfill_user_identities(engine)

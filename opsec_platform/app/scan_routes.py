@@ -26,7 +26,7 @@ from opsec_platform.app.models import Finding, Scan, User
 router = APIRouter(prefix="/scans", tags=["scans"])
 profile_router = APIRouter(prefix="/profile", tags=["profile"])
 
-SOURCES = {"cli_upload", "json_import", "media_upload", "git_url"}
+SOURCES = {"cli_upload", "json_import", "media_upload", "git_url", "monitor"}
 SORT_FIELDS = {"risk": Finding.risk_score, "rule": Finding.rule_id, "category": Finding.category, "origin": Finding.origin}
 
 
@@ -73,7 +73,15 @@ class FindingOut(BaseModel):
     origin: str | None
     context: str | None
     occurrence_count: int
+    status: str = "open"
+    mitre: str | None = None
     model_config = ConfigDict(from_attributes=True)
+
+
+def _finding_out(row: Finding) -> dict:
+    out = FindingOut.model_validate(row, from_attributes=True).model_dump()
+    out["mitre"] = svc.mitre_for(row.rule_id)
+    return out
 
 
 class GitScanRequest(BaseModel):
@@ -268,10 +276,12 @@ def overview(
         previous = scans[-2] if len(scans) > 1 else None
         current_fp = _fingerprints(db, latest.id)
         previous_fp = _fingerprints(db, previous.id) if previous else set()
-        open_totals.update({
-            "CRITICAL": latest.critical_count, "HIGH": latest.high_count,
-            "MEDIUM": latest.medium_count, "LOW": latest.low_count,
-        })
+        open_counts = dict(
+            db.query(Finding.risk_label, func.count(Finding.id))
+            .filter(Finding.scan_id == latest.id, Finding.status.notin_(svc.CLOSED_STATUSES))
+            .group_by(Finding.risk_label).all()
+        )
+        open_totals.update(open_counts)
         targets.append({
             "target_label": label,
             "latest_scan_id": latest.id,
@@ -279,10 +289,10 @@ def overview(
             "source": latest.source,
             "scans": len(scans),
             "total_findings": latest.total_findings,
-            "critical": latest.critical_count,
-            "high": latest.high_count,
-            "medium": latest.medium_count,
-            "low": latest.low_count,
+            "critical": open_counts.get("CRITICAL", 0),
+            "high": open_counts.get("HIGH", 0),
+            "medium": open_counts.get("MEDIUM", 0),
+            "low": open_counts.get("LOW", 0),
             "max_risk_score": latest.max_risk_score,
             "new": len(current_fp - previous_fp) if previous else None,
             "resolved": len(previous_fp - current_fp) if previous else None,
@@ -476,6 +486,7 @@ def scan_findings(
     category: str | None = Query(default=None, max_length=120),
     rule: str | None = Query(default=None, max_length=120),
     q: str | None = Query(default=None, max_length=200),
+    status_filter: str | None = Query(default=None, alias="status", max_length=80),
     sort: str = Query(default="risk", pattern="^(risk|rule|category|origin)$"),
     order: str = Query(default="desc", pattern="^(asc|desc)$"),
     limit: int = Query(default=100, ge=1, le=500),
@@ -493,6 +504,10 @@ def scan_findings(
         query = query.filter(Finding.category == category)
     if rule:
         query = query.filter(Finding.rule_id == rule)
+    if status_filter:
+        wanted = [x for x in status_filter.split(",") if x in svc.TRIAGE_STATUSES]
+        if wanted:
+            query = query.filter(Finding.status.in_(wanted))
     if q:
         like = f"%{q}%"
         query = query.filter(or_(Finding.origin.ilike(like), Finding.context.ilike(like), Finding.rule_id.ilike(like), Finding.identity_reason.ilike(like)))
@@ -501,16 +516,17 @@ def scan_findings(
     query = query.order_by(column.desc() if order == "desc" else column.asc(), Finding.id.asc())
     rows = query.offset(offset).limit(limit).all()
 
-    facets_rows = db.query(Finding.risk_label, Finding.category, Finding.rule_id).filter(Finding.scan_id == scan.id).all()
+    facets_rows = db.query(Finding.risk_label, Finding.category, Finding.rule_id, Finding.status).filter(Finding.scan_id == scan.id).all()
     return {
         "total": total,
         "offset": offset,
         "limit": limit,
-        "items": [FindingOut.model_validate(r, from_attributes=True).model_dump() for r in rows],
+        "items": [_finding_out(r) for r in rows],
         "facets": {
             "risk": dict(Counter(r[0] for r in facets_rows)),
             "category": dict(Counter(r[1] for r in facets_rows)),
             "rule": dict(Counter(r[2] for r in facets_rows)),
+            "status": dict(Counter(r[3] for r in facets_rows)),
         },
     }
 
@@ -542,7 +558,7 @@ def scan_diff(scan_id: str, db: DBSession = Depends(get_db), user: User = Depend
 @router.get("/{scan_id}/export")
 def export_scan(
     scan_id: str,
-    format: str = Query(default="json", pattern="^(json|csv|sarif)$"),
+    format: str = Query(default="json", pattern="^(json|csv|sarif|txt|pdf)$"),
     db: DBSession = Depends(get_db),
     user: User = Depends(get_api_user),
 ):
@@ -562,6 +578,24 @@ def export_scan(
             writer.writerow([("'" + v) if isinstance(v, str) and v[:1] in "=+-@\t\r" else v for v in values])
         return Response(buffer.getvalue(), media_type="text/csv",
                         headers={"Content-Disposition": f'attachment; filename="{safe_name}.csv"'})
+
+    if format in ("txt", "pdf"):
+        lines = [f"OPSEC Scanner — {scan.target_label}", f"Scan {scan.id} · {scan.source} · {scan.completed_at}",
+                 f"{scan.total_findings} findings: {scan.critical_count} critical, {scan.high_count} high, "
+                 f"{scan.medium_count} medium, {scan.low_count} low", "Values are redacted.", ""]
+        for r in rows:
+            mitre = svc.mitre_for(r.rule_id) or ""
+            lines.append(f"[{r.risk_label}] {r.risk_score:.2f} {r.rule_id} ({r.category}) {mitre} status={r.status}")
+            lines.append(f"    value: {r.preview} ({r.matched_length} chars)  seen {r.occurrence_count}x")
+            lines.append(f"    where: {r.origin or ''} {r.context or ''}")
+        text = "\n".join(lines) + "\n"
+        if format == "txt":
+            return Response(text, media_type="text/plain; charset=utf-8",
+                            headers={"Content-Disposition": f'attachment; filename="{safe_name}.txt"'})
+        from opsec_platform.app.reports import text_to_pdf
+
+        return Response(text_to_pdf(text), media_type="application/pdf",
+                        headers={"Content-Disposition": f'attachment; filename="{safe_name}.pdf"'})
 
     if format == "sarif":
         levels = {"CRITICAL": "error", "HIGH": "error", "MEDIUM": "warning", "LOW": "note"}
@@ -590,7 +624,7 @@ def export_scan(
         "scan": _scan_out(scan).model_dump(mode="json"),
         "redacted": True,
         "total_findings": len(rows),
-        "findings": [FindingOut.model_validate(r, from_attributes=True).model_dump() for r in rows],
+        "findings": [_finding_out(r) for r in rows],
     }
     return JSONResponse(body, headers={"Content-Disposition": f'attachment; filename="{safe_name}.json"'})
 

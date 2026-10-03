@@ -59,7 +59,10 @@ class ScanInputError(ValueError):
 # Redaction and fingerprints
 # --------------------------------------------------------------------------
 
-def redact_preview(value: str) -> str:
+STRICT_CATEGORIES = ("personal_id", "financial")
+
+
+def redact_preview(value: str, category: str | None = None) -> str:
     """Short, non-reversible preview of a matched value.
 
     Keeps a few leading characters (enough to recognise a key type such as
@@ -72,6 +75,9 @@ def redact_preview(value: str) -> str:
         return ""
     if n < 8:
         return "•" * n
+    if category in STRICT_CATEGORIES:
+        # ID and payment numbers: show only the last two characters.
+        return "•" * min(n - 2, 12) + value[-2:]
     lead = 4 if n >= 16 else 2
     tail = 2 if n >= 12 else 0
     hidden = min(n - lead - tail, 10)
@@ -166,14 +172,39 @@ def rules_status() -> dict:
         return {"ok": False, "rules": 0, "detail": type(exc).__name__}
 
 
-def analyze(raw_findings, profile_data: dict, public: bool = False):
+TRIAGE_STATUSES = ("open", "in_review", "resolved", "suppressed", "false_positive")
+CLOSED_STATUSES = ("resolved", "suppressed", "false_positive")
+_RULE_META: dict | None = None
+
+
+def rule_meta() -> dict:
+    """rule_id -> {category, mitre, description, base_severity} for every
+    pattern rule and every direct (collector) rule."""
+    global _RULE_META
+    if _RULE_META is None:
+        from opsec_scanner.analysis.patterns import load_rules
+        from opsec_platform.app.osint.collectors import DIRECT_RULES
+
+        meta = {r.id: {"category": r.category, "mitre": r.mitre, "description": r.description,
+                       "base_severity": r.base_severity} for r in load_rules()}
+        for rid, (category, severity, mitre, description) in DIRECT_RULES.items():
+            meta[rid] = {"category": category, "mitre": mitre, "description": description, "base_severity": severity}
+        _RULE_META = meta
+    return _RULE_META
+
+
+def mitre_for(rule_id: str) -> str | None:
+    return rule_meta().get(rule_id, {}).get("mitre")
+
+
+def analyze(raw_findings, profile_data: dict, public: bool = False, extra_matches=None):
     from opsec_scanner.analysis.patterns import load_rules, scan_findings
     from opsec_scanner.scoring.risk_engine import ExposureLevel, deduplicate_findings, score_findings
 
     status = rules_status()
     if not status["ok"]:
         raise RuntimeError("Detection rules are unavailable on this server.")
-    matches = scan_findings(raw_findings, load_rules())
+    matches = scan_findings(raw_findings, load_rules()) + list(extra_matches or [])
     exposure = ExposureLevel.PUBLIC_REACHABLE if public else None
     scored = score_findings(matches, to_target_profile(profile_data), exposure_override=exposure)
     return deduplicate_findings(scored)
@@ -209,7 +240,7 @@ def records_from_scored(scored) -> list[FindingRecord]:
             risk_label=s.risk_label,
             rule_id=s.match.rule_id,
             category=s.match.category,
-            preview=redact_preview(s.match.matched_text),
+            preview=redact_preview(s.match.matched_text, s.match.category),
             matched_length=len(s.match.matched_text),
             base_severity=s.match.base_severity,
             entropy_score=s.match.entropy_score,
@@ -272,7 +303,7 @@ def records_from_export(payload: dict, max_findings: int) -> list[FindingRecord]
             preview = "•" * min(max(length, 6), 16)
         else:
             fp = fingerprint(rule_id, origin, matched)
-            preview = redact_preview(matched)
+            preview = redact_preview(matched, str(item.get("category") or ""))
             length = len(matched)
         records.append(FindingRecord(
             fingerprint=fp,
@@ -296,9 +327,18 @@ def records_from_export(payload: dict, max_findings: int) -> list[FindingRecord]
     return records
 
 
-def store_results(db: DBSession, scan: Scan, records: list[FindingRecord], stats: dict | None = None) -> Scan:
+def store_results(db: DBSession, scan: Scan, records: list[FindingRecord], stats: dict | None = None,
+                  notify: bool = True) -> Scan:
+    from opsec_platform.app.models import FindingState
+
+    states = {
+        row.fingerprint: row.status
+        for row in db.query(FindingState).filter(
+            FindingState.user_id == scan.user_id, FindingState.target_label == scan.target_label
+        ).all()
+    }
     for record in records:
-        db.add(Finding(scan_id=scan.id, **record.__dict__))
+        db.add(Finding(scan_id=scan.id, status=states.get(record.fingerprint, "open"), **record.__dict__))
     counts = {label: 0 for label in RISK_LABELS}
     for record in records:
         counts[record.risk_label] = counts.get(record.risk_label, 0) + 1
@@ -314,6 +354,18 @@ def store_results(db: DBSession, scan: Scan, records: list[FindingRecord], stats
     scan.completed_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(scan)
+    if notify and records:
+        try:
+            from opsec_platform.app import alerts
+            from opsec_platform.app.models import Integration
+
+            has_destination = db.query(Integration.id).filter(
+                Integration.user_id == scan.user_id, Integration.enabled.is_(True)
+            ).first() is not None
+            if has_destination:
+                submit(alerts.dispatch_for_scan, scan.id)
+        except Exception:  # alerting must never break a scan
+            logger.exception("Could not queue alerts for scan %s", scan.id)
     return scan
 
 

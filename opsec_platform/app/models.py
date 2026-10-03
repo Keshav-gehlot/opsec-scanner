@@ -227,5 +227,67 @@ class Finding(Base):
     origin = Column(Text, nullable=True)
     context = Column(Text, nullable=True)
     occurrence_count = Column(Integer, nullable=False, default=1)
+    # Triage status, copied from FindingState when the scan is stored so it
+    # survives re-scans: open | in_review | resolved | suppressed | false_positive
+    status = Column(String, nullable=False, default="open")
 
     scan = relationship("Scan", back_populates="findings")
+
+
+class FindingState(Base):
+    """Triage decision for one finding (fingerprint) on one target, kept
+    across scans so a suppressed or false-positive finding stays that way."""
+
+    __tablename__ = "finding_states"
+    __table_args__ = (UniqueConstraint("user_id", "target_label", "fingerprint", name="uq_finding_state"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    target_label = Column(String, nullable=False)
+    fingerprint = Column(String, nullable=False)
+    status = Column(String, nullable=False, default="open")
+    note = Column(Text, nullable=True)
+    updated_at = Column(DateTime(timezone=True), default=_now, nullable=False)
+
+
+class MonitoredTarget(Base):
+    """Something the user wants watched: a domain, a URL on a verified
+    domain, an email address or a GitHub handle. Collection modules only run
+    against targets whose ownership has been verified."""
+
+    __tablename__ = "monitored_targets"
+    __table_args__ = (UniqueConstraint("user_id", "kind", "value", name="uq_monitored_target"),)
+
+    id = Column(String, primary_key=True, default=_uuid)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    org_id = Column(String, ForeignKey("orgs.id"), nullable=True)
+    kind = Column(String, nullable=False)            # domain | url | email | github_handle
+    value = Column(String, nullable=False)
+    verification_token = Column(String, nullable=False)
+    verified_at = Column(DateTime(timezone=True), nullable=True)
+    verification_method = Column(String, nullable=True)
+    schedule = Column(String, nullable=False, default="none")  # none | daily | weekly
+    next_run_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    last_scan_id = Column(String, nullable=True)
+    last_scan_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=_now, nullable=False)
+
+
+class Integration(Base):
+    """An alert destination. Its configuration (webhook URLs, bot tokens,
+    API tokens) is stored encrypted and never returned by the API."""
+
+    __tablename__ = "integrations"
+
+    id = Column(String, primary_key=True, default=_uuid)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    kind = Column(String, nullable=False)     # slack | discord | telegram | webhook | github_issues | email
+    name = Column(String, nullable=False)
+    config_encrypted = Column(Text, nullable=False)
+    config_hint = Column(String, nullable=True)  # safe-to-show summary, e.g. "hooks.slack.com/…/abc"
+    min_severity = Column(String, nullable=False, default="HIGH")
+    only_new = Column(Boolean, nullable=False, default=True)
+    enabled = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime(timezone=True), default=_now, nullable=False)
+    last_sent_at = Column(DateTime(timezone=True), nullable=True)
+    last_status = Column(String, nullable=True)

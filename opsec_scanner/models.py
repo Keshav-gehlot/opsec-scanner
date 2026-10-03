@@ -18,6 +18,14 @@ class SourceType(str, Enum):
     GIT_PATH = "git_file_path"
     MEDIA_EXIF = "media_exif"
     MEDIA_DOC = "media_document"
+    # Collected by the platform's monitoring modules (always public data).
+    WEB_CONTENT = "web_content"
+    EXPOSURE_CHECK = "exposure_check"
+    DNS_RECORD = "dns_record"
+    CERT_TRANSPARENCY = "cert_transparency"
+    CODE_SEARCH = "code_search"
+    BREACH_RECORD = "breach_record"
+    SERVICE_SCAN = "service_scan"
 
 
 @dataclass
