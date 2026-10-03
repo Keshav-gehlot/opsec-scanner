@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session as DBSession
 
 from opsec_platform.app.activity import log_activity, EventType
 from opsec_platform.app.config import get_settings
-from opsec_platform.app.dependencies import SESSION_COOKIE_NAME
+from opsec_platform.app.dependencies import SESSION_COOKIE_NAME, get_client_ip
 from opsec_platform.app.models import User, Session as SessionModel
 from opsec_platform.app.oauth_providers import build_oauth_registry
 
@@ -29,7 +29,7 @@ SUPPORTED_PROVIDERS = {"google", "github", "microsoft", "apple"}
 
 
 def _client_meta(request: Request) -> tuple[str, str]:
-    return request.client.host if request.client else "unknown", request.headers.get("user-agent", "unknown")
+    return get_client_ip(request), request.headers.get("user-agent", "unknown")
 
 
 def _require_configured_provider(provider: str):
@@ -59,17 +59,8 @@ async def oauth_login(provider: str, request: Request):
     # Vercel terminates TLS before the FastAPI runtime, so request.base_url
     # can reflect the internal localhost origin. Prefer the forwarded origin
     # supplied by the platform proxy and fall back to request.base_url locally.
-    configured_base_url = get_settings().base_url.rstrip("/")
-    explicit_base_url = bool(__import__("os").environ.get("PLATFORM_BASE_URL", "").strip())
-    forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip()
-    forwarded_host = request.headers.get("x-forwarded-host", "").split(",")[0].strip()
-    if explicit_base_url:
-        origin = configured_base_url
-    elif forwarded_proto in {"http", "https"} and forwarded_host:
-        origin = f"{forwarded_proto}://{forwarded_host}"
-    else:
-        origin = str(request.base_url).rstrip("/")
-    redirect_uri = f"{origin.rstrip('/')}/auth/oauth/{provider}/callback"
+    origin = settings.base_url.rstrip("/")
+    redirect_uri = f"{origin}/auth/oauth/{provider}/callback"
     try:
         return await client.authorize_redirect(request, redirect_uri)
     except Exception as e:
@@ -142,7 +133,7 @@ async def oauth_callback(request: Request):
     try:
         identity = await _fetch_provider_identity(provider, oauth, request)
     except Exception as e:
-        log_activity(db, EventType.OAUTH_LOGIN_FAILED, ip_address=ip, user_agent=ua, detail=f"{provider}: {e}")
+        log_activity(db, EventType.OAUTH_LOGIN_FAILED, ip_address=ip, user_agent=ua, detail=f"{provider}: {type(e).__name__}")
         db.close()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"{provider.capitalize()} sign-in failed.")
 
@@ -164,7 +155,10 @@ async def oauth_callback(request: Request):
     # provider explicitly verified that email address. This applies to
     # every supported SSO provider; otherwise an unverified provider claim
     # could be used to take over a matching local account.
-    if identity.get("email_verified") is not True:
+    email_verified = identity.get("email_verified")
+    if isinstance(email_verified, str):
+        email_verified = email_verified.strip().lower() == "true"
+    if email_verified is not True:
         log_activity(db, EventType.OAUTH_LOGIN_FAILED, ip_address=ip, user_agent=ua, detail=f"{provider}: email not verified")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -172,28 +166,38 @@ async def oauth_callback(request: Request):
         )
 
     try:
+        provider_user_id = str(identity["provider_user_id"])
+        email = str(identity["email"]).strip().lower()
         user = (
             db.query(User)
-            .filter(User.auth_provider == provider, User.provider_user_id == identity["provider_user_id"])
+            .filter(User.auth_provider == provider, User.provider_user_id == provider_user_id)
             .first()
         )
         if user is None:
-            # Not linked yet — if an account with this email already
-            # exists (e.g. a local account), link this SSO identity to
-            # it rather than creating a duplicate account for the same
-            # person.
-            user = db.query(User).filter(User.email == identity["email"]).first()
-            if user is None:
-                user = User(
-                    email=identity["email"],
-                    display_name=identity.get("display_name"),
-                    auth_provider=provider,
-                    provider_user_id=identity["provider_user_id"],
+            # Never silently convert an existing local/other-provider account
+            # into an SSO account based only on matching email. Linking must
+            # be an explicit authenticated action in a future endpoint.
+            user = db.query(User).filter(User.email == email).first()
+            if user is not None:
+                log_activity(
+                    db,
+                    EventType.OAUTH_LOGIN_FAILED,
+                    user_id=user.id,
+                    ip_address=ip,
+                    user_agent=ua,
+                    detail=f"{provider}: existing account requires explicit linking",
                 )
-                db.add(user)
-            else:
-                user.auth_provider = provider
-                user.provider_user_id = identity["provider_user_id"]
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="An account with this email already exists. Sign in to that account and link SSO explicitly.",
+                )
+            user = User(
+                email=email,
+                display_name=identity.get("display_name"),
+                auth_provider=provider,
+                provider_user_id=provider_user_id,
+            )
+            db.add(user)
             db.commit()
             db.refresh(user)
 
