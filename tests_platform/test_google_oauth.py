@@ -122,7 +122,7 @@ def test_google_login_has_oauth_session_without_platform_jwt(monkeypatch):
     monkeypatch.delenv("PLATFORM_JWT_SECRET", raising=False)
     monkeypatch.setenv("PLATFORM_COOKIE_SECURE", "false")
     monkeypatch.setenv("PLATFORM_DATABASE_URL", "sqlite:///:memory:")
-    monkeypatch.setenv("PLATFORM_BASE_URL", "https://opsec-scanner-seven.vercel.app")
+    monkeypatch.delenv("PLATFORM_BASE_URL", raising=False)
     monkeypatch.setenv("GOOGLE_CLIENT_ID", "test-client-id.apps.googleusercontent.com")
     monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "test-client-secret")
 
