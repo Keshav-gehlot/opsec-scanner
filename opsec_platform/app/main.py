@@ -18,12 +18,14 @@ from opsec_platform.app.dependencies import configure_db
 from opsec_platform.app.oauth_providers import configured_providers
 
 
-APP_VERSION = "0.2.2"
+APP_VERSION = "0.2.3"
 logger = logging.getLogger(__name__)
 
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    if not settings.jwt_secret or len(settings.jwt_secret.encode("utf-8")) < 32:
+        raise RuntimeError("PLATFORM_JWT_SECRET must be configured and contain at least 32 UTF-8 bytes.")
     app = FastAPI(title="OPSEC Scanner Platform", version=APP_VERSION)
 
     if settings.allowed_origins:
@@ -43,11 +45,8 @@ def create_app() -> FastAPI:
     # deployment has not supplied PLATFORM_JWT_SECRET yet. The platform
     # JWT remains the signing key for application sessions; this secret is
     # only for the short-lived OAuth handshake state.
-    oauth_session_secret = settings.jwt_secret or next(
-        (cfg.client_secret for cfg in settings.oauth_providers().values() if cfg.is_configured),
-        "",
-    )
-    if oauth_session_secret:
+    oauth_session_secret = settings.jwt_secret
+    if configured_providers(settings):
         app.add_middleware(
             SessionMiddleware,
             secret_key=oauth_session_secret,
