@@ -51,6 +51,7 @@ class Settings:
 
     base_url: str = field(default_factory=lambda: _get("PLATFORM_BASE_URL", "http://localhost:8000"))
     cookie_secure: bool = field(default_factory=lambda: _get("PLATFORM_COOKIE_SECURE", "true").lower() != "false")
+    allowed_origins: tuple[str, ...] = field(default_factory=lambda: tuple(o.strip().rstrip("/") for o in _get("PLATFORM_ALLOWED_ORIGINS").split(",") if o.strip()))
 
     google: OAuthProviderConfig = field(default_factory=lambda: OAuthProviderConfig(
         "google", _get("GOOGLE_CLIENT_ID"), _get("GOOGLE_CLIENT_SECRET")))
