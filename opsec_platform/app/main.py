@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import secrets
 import uuid
 from pathlib import Path
 
@@ -22,6 +23,19 @@ APP_VERSION = "0.2.2"
 logger = logging.getLogger(__name__)
 
 
+def deployed_commit() -> str | None:
+    """Short git SHA of the running build, from the host platform.
+
+    APP_VERSION is a hand-maintained string, so it cannot prove which
+    build is live; the platform-provided commit can.
+    """
+    for name in ("RENDER_GIT_COMMIT", "VERCEL_GIT_COMMIT_SHA", "PLATFORM_GIT_COMMIT"):
+        value = os.environ.get(name, "").strip()
+        if value:
+            return value[:12]
+    return None
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(title="OPSEC Scanner Platform", version=APP_VERSION)
@@ -38,16 +52,19 @@ def create_app() -> FastAPI:
     static_dir = Path(__file__).resolve().parents[1] / "static"
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
-    # Authlib stores OAuth state in the Starlette session. Install the
-    # middleware whenever an OAuth provider is configured, even if the
-    # deployment has not supplied PLATFORM_JWT_SECRET yet. The platform
-    # JWT remains the signing key for application sessions; this secret is
-    # only for the short-lived OAuth handshake state.
-    oauth_session_secret = settings.jwt_secret or next(
-        (cfg.client_secret for cfg in settings.oauth_providers().values() if cfg.is_configured),
-        "",
-    )
-    if oauth_session_secret:
+    # Authlib stores OAuth state in the Starlette session cookie. It is
+    # signed with its own dedicated secret: never PLATFORM_JWT_SECRET and
+    # never an OAuth provider's client secret. HTTPS deployments must
+    # supply PLATFORM_OAUTH_SESSION_SECRET (see Settings.oauth_config_problems;
+    # the OAuth routes refuse to run without it). Plain-http local
+    # development gets an ephemeral per-process key so it needs no setup.
+    oauth_enabled = any(cfg.is_configured for cfg in settings.oauth_providers().values())
+    oauth_session_secret = settings.oauth_session_secret
+    if not oauth_session_secret and oauth_enabled and not settings.cookie_secure:
+        oauth_session_secret = secrets.token_urlsafe(32)
+    for problem in settings.oauth_config_problems() if oauth_enabled else []:
+        logger.error("SSO disabled until fixed: %s", problem)
+    if oauth_enabled and oauth_session_secret:
         app.add_middleware(
             SessionMiddleware,
             secret_key=oauth_session_secret,
@@ -160,6 +177,7 @@ def create_app() -> FastAPI:
             content={
                 "status": "ok" if database == "ok" else "degraded",
                 "version": APP_VERSION,
+                "commit": deployed_commit(),
                 "database": database,
                 "sso_providers_configured": configured_providers(settings),
             },
@@ -167,7 +185,7 @@ def create_app() -> FastAPI:
 
     @app.get("/health/live", include_in_schema=False)
     def liveness():
-        return {"status": "ok", "version": APP_VERSION}
+        return {"status": "ok", "version": APP_VERSION, "commit": deployed_commit()}
 
     @app.get("/health/ready", include_in_schema=False)
     def readiness():

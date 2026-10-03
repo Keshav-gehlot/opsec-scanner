@@ -48,7 +48,29 @@ def _require_configured_provider(provider: str):
                 f"and obtain these values."
             ),
         )
+    if settings.oauth_config_problems():
+        # Details (variable names only) are logged at startup; don't
+        # describe server configuration to anonymous callers.
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Single sign-on is temporarily unavailable on this server.",
+        )
     return settings
+
+
+def _oauth_redirect_uri(settings, request: Request, provider: str) -> str:
+    """Callback URL sent to the provider.
+
+    Never derived from client-controllable Host / X-Forwarded-* headers in
+    an HTTPS deployment: PLATFORM_BASE_URL is mandatory there (enforced by
+    Settings.oauth_config_problems). Plain-http local development falls
+    back to the URL the request actually arrived on.
+    """
+    if settings.base_url_explicit:
+        origin = settings.base_url
+    else:
+        origin = str(request.base_url)
+    return f"{origin.rstrip('/')}/auth/oauth/{provider}/callback"
 
 
 @router.get("/{provider}/login")
@@ -56,20 +78,7 @@ async def oauth_login(provider: str, request: Request):
     settings = _require_configured_provider(provider)
     oauth = build_oauth_registry(settings)
     client = oauth.create_client(provider)
-    # Vercel terminates TLS before the FastAPI runtime, so request.base_url
-    # can reflect the internal localhost origin. Prefer the forwarded origin
-    # supplied by the platform proxy and fall back to request.base_url locally.
-    configured_base_url = get_settings().base_url.rstrip("/")
-    explicit_base_url = bool(__import__("os").environ.get("PLATFORM_BASE_URL", "").strip())
-    forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip()
-    forwarded_host = request.headers.get("x-forwarded-host", "").split(",")[0].strip()
-    if explicit_base_url:
-        origin = configured_base_url
-    elif forwarded_proto in {"http", "https"} and forwarded_host:
-        origin = f"{forwarded_proto}://{forwarded_host}"
-    else:
-        origin = str(request.base_url).rstrip("/")
-    redirect_uri = f"{origin.rstrip('/')}/auth/oauth/{provider}/callback"
+    redirect_uri = _oauth_redirect_uri(settings, request, provider)
     try:
         return await client.authorize_redirect(request, redirect_uri)
     except Exception as e:
@@ -142,22 +151,35 @@ async def oauth_callback(request: Request):
     try:
         identity = await _fetch_provider_identity(provider, oauth, request)
     except Exception as e:
-        log_activity(db, EventType.OAUTH_LOGIN_FAILED, ip_address=ip, user_agent=ua, detail=f"{provider}: {e}")
-        db.close()
+        # Record only the exception type: provider error messages can echo
+        # back request/response fragments that don't belong in the audit log.
+        logger.warning("OAuth callback failed for provider=%s: %s", provider, type(e).__name__)
+        try:
+            log_activity(db, EventType.OAUTH_LOGIN_FAILED, ip_address=ip, user_agent=ua,
+                         detail=f"{provider}: token exchange failed ({type(e).__name__})")
+        finally:
+            db.close()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"{provider.capitalize()} sign-in failed.")
 
+    def _reject(reason: str, message: str) -> HTTPException:
+        # Every early exit must release the DB session; previously these
+        # branches returned before the try/finally below and leaked it.
+        try:
+            log_activity(db, EventType.OAUTH_LOGIN_FAILED, ip_address=ip, user_agent=ua, detail=f"{provider}: {reason}")
+        finally:
+            db.close()
+        return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=message)
+
     if not identity.get("provider_user_id"):
-        log_activity(db, EventType.OAUTH_LOGIN_FAILED, ip_address=ip, user_agent=ua, detail=f"{provider}: no provider user id returned")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"{provider.capitalize()} did not provide a usable account identifier.",
+        raise _reject(
+            "no provider user id returned",
+            f"{provider.capitalize()} did not provide a usable account identifier.",
         )
 
     if not identity.get("email"):
-        log_activity(db, EventType.OAUTH_LOGIN_FAILED, ip_address=ip, user_agent=ua, detail=f"{provider}: no email returned")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"{provider.capitalize()} did not provide an email address for this account.",
+        raise _reject(
+            "no email returned",
+            f"{provider.capitalize()} did not provide an email address for this account.",
         )
 
     # Account linking is keyed by email, so only accept an identity whose
@@ -165,10 +187,9 @@ async def oauth_callback(request: Request):
     # every supported SSO provider; otherwise an unverified provider claim
     # could be used to take over a matching local account.
     if identity.get("email_verified") is not True:
-        log_activity(db, EventType.OAUTH_LOGIN_FAILED, ip_address=ip, user_agent=ua, detail=f"{provider}: email not verified")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"{provider.capitalize()} did not provide a verified email address for this account.",
+        raise _reject(
+            "email not verified",
+            f"{provider.capitalize()} did not provide a verified email address for this account.",
         )
 
     try:
