@@ -14,12 +14,14 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DBSession
 
 from opsec_platform.app.activity import log_activity, EventType
 from opsec_platform.app.config import get_settings
 from opsec_platform.app.dependencies import SESSION_COOKIE_NAME
-from opsec_platform.app.models import User, Session as SessionModel
+from opsec_platform.app.identities import PENDING_LINK_KEY, find_user_by_identity
+from opsec_platform.app.models import User, UserIdentity, Session as SessionModel
 from opsec_platform.app.oauth_providers import build_oauth_registry
 
 router = APIRouter(prefix="/auth/oauth", tags=["oauth"])
@@ -182,40 +184,58 @@ async def oauth_callback(request: Request):
             f"{provider.capitalize()} did not provide an email address for this account.",
         )
 
-    # Account linking is keyed by email, so only accept an identity whose
-    # provider explicitly verified that email address. This applies to
-    # every supported SSO provider; otherwise an unverified provider claim
-    # could be used to take over a matching local account.
+    # Only accept an identity whose provider explicitly verified the email:
+    # it decides whether a new account is created or a password-confirmed
+    # link to an existing account is offered.
     if identity.get("email_verified") is not True:
         raise _reject(
             "email not verified",
             f"{provider.capitalize()} did not provide a verified email address for this account.",
         )
 
+    subject = str(identity["provider_user_id"])
+    email = str(identity["email"]).strip().lower()
+
     try:
-        user = (
-            db.query(User)
-            .filter(User.auth_provider == provider, User.provider_user_id == identity["provider_user_id"])
-            .first()
-        )
+        # 1. The provider's stable subject id is the identity key — never
+        #    the email address.
+        user = find_user_by_identity(db, provider, subject)
+
         if user is None:
-            # Not linked yet — if an account with this email already
-            # exists (e.g. a local account), link this SSO identity to
-            # it rather than creating a duplicate account for the same
-            # person.
-            user = db.query(User).filter(User.email == identity["email"]).first()
-            if user is None:
-                user = User(
-                    email=identity["email"],
-                    display_name=identity.get("display_name"),
-                    auth_provider=provider,
-                    provider_user_id=identity["provider_user_id"],
-                )
-                db.add(user)
-            else:
-                user.auth_provider = provider
-                user.provider_user_id = identity["provider_user_id"]
-            db.commit()
+            existing = db.query(User).filter(User.email == email).first()
+            if existing is not None:
+                # 2. An account with this email already exists but this
+                #    identity isn't linked to it. Do NOT link silently (and
+                #    never convert it to SSO-only, which used to disable its
+                #    password). Remember the verified identity in the signed,
+                #    10-minute OAuth session and require the account owner to
+                #    prove control with their password; /auth/login then
+                #    completes the link.
+                request.session[PENDING_LINK_KEY] = {
+                    "provider": provider, "provider_user_id": subject, "email": email,
+                }
+                log_activity(db, EventType.OAUTH_LINK_REQUIRED, user_id=existing.id,
+                             ip_address=ip, user_agent=ua, detail=provider)
+                return Response(status_code=302, headers={"Location": "/?sso=link_required"})
+
+            # 3. Brand-new person: create the account and its identity.
+            user = User(
+                email=email,
+                display_name=identity.get("display_name"),
+                auth_provider=provider,
+                provider_user_id=subject,
+            )
+            db.add(user)
+            db.flush()
+            db.add(UserIdentity(user_id=user.id, provider=provider, provider_user_id=subject, email_at_link=email))
+            try:
+                db.commit()
+            except IntegrityError:
+                # Concurrent first sign-in for the same person/email.
+                db.rollback()
+                user = find_user_by_identity(db, provider, subject)
+                if user is None:
+                    return Response(status_code=302, headers={"Location": "/?sso=failed"})
             db.refresh(user)
 
         if not user.is_active:
@@ -232,7 +252,8 @@ async def oauth_callback(request: Request):
 
         log_activity(db, EventType.OAUTH_LOGIN_SUCCESS, user_id=user.id, ip_address=ip, user_agent=ua, detail=provider)
 
-        response = Response(status_code=302, headers={"Location": "/"})
+        # "/" renders the sign-in form; a signed-in user belongs on the dashboard.
+        response = Response(status_code=302, headers={"Location": "/dashboard"})
         response.set_cookie(
             SESSION_COOKIE_NAME, token,
             httponly=True, samesite="lax", secure=settings.cookie_secure,
