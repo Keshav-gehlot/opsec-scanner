@@ -26,7 +26,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import (
-    Column, String, Boolean, DateTime, ForeignKey, Text, Integer
+    Column, String, Boolean, DateTime, ForeignKey, Text, Integer, UniqueConstraint
 )
 from sqlalchemy.orm import declarative_base, relationship
 
@@ -82,6 +82,32 @@ class User(Base):
 
     org = relationship("Org", back_populates="users")
     sessions = relationship("Session", back_populates="user")
+    identities = relationship("UserIdentity", back_populates="user")
+
+
+class UserIdentity(Base):
+    """One external sign-in identity (provider + the provider's stable
+    subject id, e.g. Google's `sub`) linked to a User.
+
+    A user can hold a local password and any number of linked identities
+    at the same time; signing in with one never disables another. The
+    provider subject — not the email address — is the lookup key, as
+    providers recommend.
+    """
+
+    __tablename__ = "user_identities"
+    __table_args__ = (
+        UniqueConstraint("provider", "provider_user_id", name="uq_user_identities_provider_subject"),
+    )
+
+    id = Column(String, primary_key=True, default=_uuid)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    provider = Column(String, nullable=False)
+    provider_user_id = Column(String, nullable=False)
+    email_at_link = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=_now, nullable=False)
+
+    user = relationship("User", back_populates="identities")
 
 
 class Session(Base):

@@ -51,7 +51,7 @@ def test_google_callback_creates_user_and_session(oauth_client, monkeypatch):
     )
 
     assert response.status_code == 302
-    assert response.headers["location"] == "/"
+    assert response.headers["location"] == "/dashboard"
     assert "opsec_session" in response.cookies
 
     me = oauth_client.get("/auth/me")
@@ -83,7 +83,10 @@ def test_google_callback_rejects_unverified_email(oauth_client, monkeypatch):
     assert oauth_client.get("/auth/me").status_code == 401
 
 
-def test_google_callback_links_existing_local_account(oauth_client, monkeypatch):
+def test_google_callback_requires_password_to_link_existing_account(oauth_client, monkeypatch):
+    """Existing accounts are never linked silently by email: the owner must
+    sign in with their password once, which completes the link, and the
+    password keeps working afterwards."""
     registered = oauth_client.post(
         "/auth/register",
         json={
@@ -111,11 +114,35 @@ def test_google_callback_links_existing_local_account(oauth_client, monkeypatch)
         follow_redirects=False,
     )
 
+    # 1. Google alone does not get into the existing account.
     assert response.status_code == 302
+    assert response.headers["location"] == "/?sso=link_required"
+    assert "opsec_session" not in response.cookies
+    assert oauth_client.get("/auth/me").status_code == 401
+
+    # 2. Proving the password completes the link.
+    login = oauth_client.post("/auth/login", json={"email": "person@example.com", "password": "testpass123"})
+    assert login.status_code == 200
+    oauth_client.post("/auth/logout")
+    oauth_client.cookies.clear()
+
+    # 3. Google now signs straight in, and the account stays a password account.
+    response = oauth_client.get(
+        "/auth/oauth/google/callback?code=test-code&state=test-state",
+        follow_redirects=False,
+    )
+    assert response.status_code == 302
+    assert response.headers["location"] == "/dashboard"
     me = oauth_client.get("/auth/me")
     assert me.status_code == 200
-    assert me.json()["auth_provider"] == "google"
+    assert me.json()["auth_provider"] == "local"
     assert me.json()["email"] == "person@example.com"
+
+    # 4. Password login still works after Google was used.
+    oauth_client.post("/auth/logout")
+    oauth_client.cookies.clear()
+    login = oauth_client.post("/auth/login", json={"email": "person@example.com", "password": "testpass123"})
+    assert login.status_code == 200
 
 
 def test_google_login_has_oauth_session_without_platform_jwt(monkeypatch):

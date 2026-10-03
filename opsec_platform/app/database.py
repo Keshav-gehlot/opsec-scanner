@@ -50,16 +50,29 @@ def make_engine(database_url: str | None = None):
         if explicit:
             try:
                 url = normalize_database_url(explicit)
-            except RuntimeError:
+            except RuntimeError as exc:
                 # Render can inject its managed DATABASE_URL separately. If a
                 # stale PLATFORM_DATABASE_URL is malformed, prefer the managed
                 # database rather than bringing the whole service down.
                 if not managed:
-                    raise
+                    # Name the variable (never its value) so the deploy log
+                    # says which setting to fix.
+                    raise RuntimeError(f"PLATFORM_DATABASE_URL is invalid: {exc}") from None
                 logger.warning("PLATFORM_DATABASE_URL is invalid; using managed DATABASE_URL instead.")
                 url = normalize_database_url(managed)
         elif managed:
-            url = normalize_database_url(managed)
+            try:
+                url = normalize_database_url(managed)
+            except RuntimeError as exc:
+                raise RuntimeError(f"DATABASE_URL is invalid: {exc}") from None
+        elif settings.cookie_secure:
+            # HTTPS (production) deployment with no database configured: the
+            # local SQLite default would live on the host's ephemeral disk —
+            # an empty database that looks healthy and is wiped on restart.
+            raise RuntimeError(
+                "No database configured. Set DATABASE_URL (or PLATFORM_DATABASE_URL) "
+                "to the PostgreSQL connection string."
+            )
         else:
             url = normalize_database_url(settings.database_url)
 
@@ -100,6 +113,67 @@ def ensure_schema_compat(engine) -> None:
             raise
 
 
+def backfill_user_identities(engine) -> None:
+    """Move legacy single-provider SSO links into user_identities.
+
+    Before user_identities existed, an SSO sign-in that matched an existing
+    account by email overwrote users.auth_provider / provider_user_id. For a
+    password account that silently disabled password login (login required
+    auth_provider == "local"). For every user still carrying a provider
+    subject, record it as a linked identity; if the account also has a
+    password, restore auth_provider to "local" so both methods work.
+    Idempotent and safe for several workers starting at once.
+    """
+    import uuid
+    from datetime import datetime, timezone
+    from sqlalchemy.exc import IntegrityError
+    from opsec_platform.app.models import UserIdentity
+
+    inspector = inspect(engine)
+    if "users" not in inspector.get_table_names() or "user_identities" not in inspector.get_table_names():
+        return
+    # Read only the columns this repair needs, so it also runs against older
+    # users tables that predate unrelated columns.
+    needed = {"id", "email", "auth_provider", "provider_user_id", "hashed_password"}
+    if not needed <= _user_columns(engine):
+        return
+
+    identities = UserIdentity.__table__
+    with engine.connect() as connection:
+        legacy = connection.execute(text(
+            "SELECT id, email, auth_provider, provider_user_id, hashed_password FROM users "
+            "WHERE auth_provider <> 'local' AND provider_user_id IS NOT NULL"
+        )).mappings().all()
+
+    for row in legacy:
+        try:
+            with engine.begin() as connection:
+                exists = connection.execute(
+                    identities.select().where(
+                        identities.c.provider == row["auth_provider"],
+                        identities.c.provider_user_id == row["provider_user_id"],
+                    )
+                ).first()
+                if exists is None:
+                    connection.execute(identities.insert().values(
+                        id=str(uuid.uuid4()), user_id=row["id"], provider=row["auth_provider"],
+                        provider_user_id=row["provider_user_id"], email_at_link=row["email"],
+                        created_at=datetime.now(timezone.utc),
+                    ))
+                if row["hashed_password"]:
+                    connection.execute(
+                        text("UPDATE users SET auth_provider = 'local', provider_user_id = NULL WHERE id = :id"),
+                        {"id": row["id"]},
+                    )
+        except IntegrityError:
+            # Another worker backfilled the same identity first; it also
+            # applied (or will apply) the same users update.
+            continue
+    if legacy:
+        logger.info("Backfilled linked sign-in identities for %d legacy account(s).", len(legacy))
+
+
 def init_db(engine) -> None:
     Base.metadata.create_all(bind=engine)
     ensure_schema_compat(engine)
+    backfill_user_identities(engine)
