@@ -50,16 +50,29 @@ def make_engine(database_url: str | None = None):
         if explicit:
             try:
                 url = normalize_database_url(explicit)
-            except RuntimeError:
+            except RuntimeError as exc:
                 # Render can inject its managed DATABASE_URL separately. If a
                 # stale PLATFORM_DATABASE_URL is malformed, prefer the managed
                 # database rather than bringing the whole service down.
                 if not managed:
-                    raise
+                    # Name the variable (never its value) so the deploy log
+                    # says which setting to fix.
+                    raise RuntimeError(f"PLATFORM_DATABASE_URL is invalid: {exc}") from None
                 logger.warning("PLATFORM_DATABASE_URL is invalid; using managed DATABASE_URL instead.")
                 url = normalize_database_url(managed)
         elif managed:
-            url = normalize_database_url(managed)
+            try:
+                url = normalize_database_url(managed)
+            except RuntimeError as exc:
+                raise RuntimeError(f"DATABASE_URL is invalid: {exc}") from None
+        elif settings.cookie_secure:
+            # HTTPS (production) deployment with no database configured: the
+            # local SQLite default would live on the host's ephemeral disk —
+            # an empty database that looks healthy and is wiped on restart.
+            raise RuntimeError(
+                "No database configured. Set DATABASE_URL (or PLATFORM_DATABASE_URL) "
+                "to the PostgreSQL connection string."
+            )
         else:
             url = normalize_database_url(settings.database_url)
 
