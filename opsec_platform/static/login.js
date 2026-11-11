@@ -47,6 +47,8 @@ function setMode(mode) {
   $("formTitle").textContent = register ? "Create your account" : "Welcome back";
   $("formSubtext").textContent = register ? "Start a workspace. The first member becomes its administrator." : "Sign in to your OPSEC workspace.";
   $("orgField").hidden = !register;
+  // The strength meter only helps when choosing a password, not when typing an existing one.
+  document.querySelector(".password-meta").hidden = !register;
   $("orgName").required = register;
   $("submitButton").textContent = register ? "Create account" : "Sign in";
   $("password").autocomplete = register ? "new-password" : "current-password";
@@ -97,12 +99,21 @@ function renderProviders(providers) {
 }
 
 async function loadHealth() {
+  // The free-tier API sleeps when idle; say so instead of looking broken.
+  const waking = setTimeout(() => {
+    $("statusText").textContent = "Waking the server (up to a minute)…";
+    $("statusDot").classList.add("waking");
+  }, 3000);
   try {
     const data = await api("/health");
+    clearTimeout(waking);
+    $("statusDot").classList.remove("waking");
     $("statusText").textContent = data.database === "ok" ? "All systems operational" : "Limited availability";
     $("statusDot").classList.toggle("offline", data.database !== "ok");
     renderProviders(Array.isArray(data.sso_providers_configured) ? data.sso_providers_configured : []);
   } catch {
+    clearTimeout(waking);
+    $("statusDot").classList.remove("waking");
     $("statusText").textContent = "Service unavailable";
     $("statusDot").classList.add("offline");
     renderProviders([]);
@@ -112,7 +123,7 @@ async function loadHealth() {
 function setLoading(value) {
   state.loading = value;
   $("submitButton").disabled = value;
-  $("submitButton").textContent = value ? "Working…" : (state.mode === "register" ? "Create account" : "Sign in");
+  $("submitButton").textContent = value ? (state.mode === "register" ? "Creating account…" : "Signing in…") : (state.mode === "register" ? "Create account" : "Sign in");
 }
 
 function showSsoNotice() {

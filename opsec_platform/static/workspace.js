@@ -31,6 +31,7 @@ function ago(value) {
   if (s < 86400) return Math.floor(s / 3600) + " h ago";
   return Math.floor(s / 86400) + " d ago";
 }
+function plural(n, word, many) { return n + " " + (n === 1 ? word : (many || word + "s")); }
 function notice(type, message) {
   const el = $("notice");
   el.className = "notice show " + type;
@@ -75,6 +76,20 @@ function emptyState(title, text, action = "") {
 }
 function applyBarWidths(root = document) {
   root.querySelectorAll("[data-w]").forEach((el) => { el.style.width = Math.max(2, Math.min(100, Number(el.dataset.w))) + "%"; });
+}
+// Copy each column header into its cells' data-label so the phone layout
+// (workspace.css, max-width 600px) can render rows as labelled cards.
+function labelTables(root) {
+  root.querySelectorAll(".table-wrap").forEach((wrap) => {
+    const table = wrap.querySelector("table");
+    if (!table) return;
+    const heads = [...table.querySelectorAll("thead th")].map((th) => th.textContent.trim());
+    if (!heads.length) return;
+    wrap.classList.add("stack");
+    table.querySelectorAll("tbody tr").forEach((tr) => {
+      [...tr.children].forEach((td, i) => { if (!td.hasAttribute("colspan") && heads[i]) td.dataset.label = heads[i]; });
+    });
+  });
 }
 function stopPolling() { if (state.poll) { clearTimeout(state.poll); state.poll = null; } }
 function schedule(fn, ms) { stopPolling(); state.poll = setTimeout(fn, ms); }
@@ -170,14 +185,14 @@ async function renderOverview() {
     '<div class="tile crit"><span>Critical open</span><strong>' + o.CRITICAL + "</strong></div>" +
     '<div class="tile high"><span>High open</span><strong>' + o.HIGH + "</strong></div>" +
     '<div class="tile med"><span>Medium open</span><strong>' + o.MEDIUM + "</strong></div>" +
-    '<div class="tile low"><span>Low open</span><strong>' + o.LOW + "</strong><small>" + data.targets.length + " target(s) · " + data.scans_total + " scan(s)</small></div></div>";
+    '<div class="tile low"><span>Low open</span><strong>' + o.LOW + "</strong><small>" + plural(data.targets.length, "target") + " · " + plural(data.scans_total, "scan") + "</small></div></div>";
   html += '<div class="grid grid-wide section"><section class="card"><h3>Findings per scan</h3><p class="card-subtext">Last ' + data.trend.length + " completed scans.</p>" + trendChart(data.trend) + "</section>" +
     '<section class="card"><h3>Most frequent rules</h3><p class="card-subtext">Across the latest scan of each target.</p>' + hbars(data.top_rules, "rule_id") + "</section></div>";
   const running = (data.scans_by_status.running || 0) + (data.scans_by_status.queued || 0);
-  html += '<section class="section"><div class="card-head"><div><h3>Targets</h3><p class="card-subtext">' + (running ? running + " scan(s) in progress. " : "") + "Sorted by severity.</p></div></div>";
+  html += '<section class="section"><div class="card-head"><div><h3>Targets</h3><p class="card-subtext">' + (running ? plural(running, "scan") + " in progress. " : "") + "Sorted by severity.</p></div></div>";
   html += '<div class="table-wrap section"><table><thead><tr><th>Target</th><th>Open findings</th><th class="num">Risk max</th><th>Since previous</th><th>Last scanned</th></tr></thead><tbody>' +
-    data.targets.map((t) => '<tr class="clickable" data-href="#/scan/' + esc(t.latest_scan_id) + '"><td><div class="cell-main">' + esc(t.target_label) + '</div><div class="cell-sub">' + sourceTag(t.source) + " · " + t.scans + " scan(s)</div></td><td>" + counts(t) + '</td><td class="num">' + t.max_risk_score.toFixed(1) + "</td><td>" +
-      (t.new === null ? '<span class="faint small">First scan</span>' : '<span class="small">+' + t.new + " new · −" + t.resolved + " resolved</span>") + '</td><td class="small">' + esc(ago(t.latest_at)) + "</td></tr>").join("") +
+    data.targets.map((t) => '<tr class="clickable" data-href="#/scan/' + esc(t.latest_scan_id) + '"><td><div class="cell-main">' + esc(t.target_label) + '</div><div class="cell-sub">' + sourceTag(t.source) + " · " + plural(t.scans, "scan") + "</div></td><td>" + counts(t) + '</td><td class="num">' + t.max_risk_score.toFixed(1) + "</td><td>" +
+      (t.new === null ? '<span class="faint small">First scan</span>' : (t.new || t.resolved ? '<span class="small">' + (t.new ? '<span class="warn">+' + t.new + " new</span>" : "") + (t.new && t.resolved ? " · " : "") + (t.resolved ? '<span class="ok">' + t.resolved + " resolved</span>" : "") + "</span>" : '<span class="faint small">No change</span>')) + '</td><td class="small">' + esc(ago(t.latest_at)) + "</td></tr>").join("") +
     "</tbody></table></div></section>";
   if (data.categories.length) html += '<section class="card section"><h3>Categories</h3>' + hbars(data.categories, "category") + "</section>";
   view().innerHTML = html;
@@ -302,7 +317,7 @@ function bindMediaForm(L) {
   const render = () => {
     const total = files.reduce((a, f) => a + f.size, 0);
     $("fileList").innerHTML = files.map((f, i) => '<div class="file-item"><span>' + esc(f.name) + '</span><span class="faint">' + (f.size / 1024 / 1024).toFixed(2) + ' MB <button type="button" class="link-button" data-remove="' + i + '">Remove</button></span></div>').join("") +
-      (files.length ? '<p class="hint">' + files.length + " file(s), " + (total / 1024 / 1024).toFixed(2) + " MB</p>" : "");
+      (files.length ? '<p class="hint">' + plural(files.length, "file") + ", " + (total / 1024 / 1024).toFixed(2) + " MB</p>" : "");
     $("fileList").querySelectorAll("[data-remove]").forEach((b) => b.addEventListener("click", () => { files.splice(Number(b.dataset.remove), 1); render(); }));
     $("mediaSubmit").disabled = !files.length;
   };
@@ -534,7 +549,7 @@ async function renderAccount() {
     try { await api("/auth/sessions/" + encodeURIComponent(b.dataset.revoke), { method: "DELETE" }); notice("success", "Session revoked."); renderAccount(); } catch (error) { notice("error", error.message); }
   }));
   $("revokeOthers").addEventListener("click", async () => {
-    try { const r = await api("/auth/sessions/revoke-others", { method: "POST" }); notice("success", r.revoked ? r.revoked + " other session(s) signed out." : "No other sessions."); renderAccount(); } catch (error) { notice("error", error.message); }
+    try { const r = await api("/auth/sessions/revoke-others", { method: "POST" }); notice("success", r.revoked ? plural(r.revoked, "other session") + " signed out." : "No other sessions."); renderAccount(); } catch (error) { notice("error", error.message); }
   });
 }
 
@@ -672,7 +687,7 @@ async function renderSummary() {
     '<a class="secondary compact" href="/reports/summary.pdf">Download PDF</a><a class="secondary compact" href="/reports/summary.txt">Download TXT</a>');
   if (!d.targets) { view().innerHTML = html + emptyState("Nothing to summarise yet", "Run a scan first.", '<a class="btn" href="#/new">New scan</a>'); return; }
   html += '<div class="grid grid-wide"><section class="card summary-hero">' + gauge(d.exposure_index) + '<div><h3>Exposure index</h3><p class="hint">Worst open finding × 0.7, plus up to 3 points for volume (critical 1.0, high 0.5, medium 0.15, low 0.03 each).</p>' +
-    '<div class="counts section">' + LABELS.map((l) => '<span class="sev ' + l + '">' + d.counts[l] + " " + l.toLowerCase() + "</span>").join(" ") + '</div><p class="small muted section">' + d.open_findings + " open finding(s) across " + d.targets + " target(s)</p></div></section>" +
+    '<div class="counts section">' + LABELS.map((l) => '<span class="sev ' + l + '">' + d.counts[l] + " " + l.toLowerCase() + "</span>").join(" ") + '</div><p class="small muted section">' + plural(d.open_findings, "open finding") + " across " + plural(d.targets, "target") + "</p></div></section>" +
     '<section class="card"><h3>Recommended actions</h3>' + (d.recommendations.length ? '<ol class="recs">' + d.recommendations.map((r) => "<li><strong>" + esc(r.category.replaceAll("_", " ")) + "</strong> — " + esc(r.text) + "</li>").join("") + "</ol>" : '<p class="hint section">No open findings.</p>') + "</section></div>";
   if (d.narrative) html += '<section class="card section"><h3>Summary</h3><p class="narrative">' + esc(d.narrative) + '</p><p class="hint">Written by an AI model from aggregate, redacted counts.</p></section>';
   html += '<section class="section"><h3>Top risks</h3><div class="table-wrap section"><table><thead><tr><th>Risk</th><th>Finding</th><th>Where</th><th>ATT&amp;CK</th></tr></thead><tbody>' +
@@ -880,6 +895,8 @@ async function boot() {
   $("userEmail").textContent = state.user.email;
   $("userRole").textContent = state.user.is_org_admin ? "Organization admin" : (state.user.org_id ? "Member" : "Personal account");
   $("orgNav").hidden = !state.user.is_org_admin;
+  // childList only: labelTables writes attributes, so it cannot retrigger itself.
+  new MutationObserver(() => labelTables(view())).observe(view(), { childList: true, subtree: true });
   window.addEventListener("hashchange", route);
   if (!location.hash) history.replaceState(null, "", "#/overview");
   route();
