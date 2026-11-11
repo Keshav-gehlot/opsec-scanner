@@ -1,0 +1,39 @@
+name: Keep-alive
+
+# The production database is a free Supabase project, which pauses after
+# about 7 days without activity; a paused project makes the API crash on
+# startup (outage of 2026-11-11). Once a day, call the readiness endpoint,
+# which runs `SELECT 1` against the database through the real request path
+# (Vercel -> Render -> Supabase). A failed run is also an uptime alert:
+# GitHub emails the repository owner.
+#
+# Deliberately daily, not every few minutes: keeping the free Render web
+# service awake 24/7 would spend the workspace's shared free instance hours.
+# Note: GitHub disables scheduled workflows after 60 days without commits;
+# re-enable it from the Actions tab if that happens.
+
+on:
+  schedule:
+    - cron: "17 3 * * *"   # 03:17 UTC = 08:47 IST
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Wake API and touch the database
+        env:
+          URL: https://opsec-scanner-seven.vercel.app/health/ready
+        run: |
+          # A sleeping Render instance takes up to about a minute to start.
+          for attempt in 1 2 3 4 5; do
+            code=$(curl -sS -o body.json -w '%{http_code}' --max-time 90 "$URL" || echo 000)
+            echo "attempt $attempt: HTTP $code $(cat body.json 2>/dev/null)"
+            if [ "$code" = 200 ]; then exit 0; fi
+            sleep 30
+          done
+          echo "::error title=Production not ready::$URL did not return 200 after 5 attempts. If the database is down, check whether the Supabase project is paused."
+          exit 1

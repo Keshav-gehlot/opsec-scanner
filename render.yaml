@@ -9,10 +9,12 @@ services:
     name: opsec-scanner-api
     runtime: python
     plan: free
-    # Editable install keeps rules/ beside the package (the scanner also
-    # falls back to ./rules in the working directory).
-    buildCommand: pip install --upgrade pip && pip install -e .
+    # Matches the live service (verified 2026-11-11). The scanner finds
+    # rules/ through its ./rules fallback in the working directory.
+    buildCommand: pip install '.[platform]'
     startCommand: uvicorn opsec_platform.app.main:app --host 0.0.0.0 --port $PORT
+    # Not yet set on the live service: set it in the dashboard
+    # (Settings > Health Check Path) so Render restarts a broken instance.
     healthCheckPath: /health/ready
     autoDeploy: true
     envVars:
