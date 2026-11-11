@@ -9,6 +9,8 @@ on:
 jobs:
   test:
     runs-on: ubuntu-24.04
+    # Fail in minutes, not hours, if an external service hangs.
+    timeout-minutes: 20
     strategy:
       # One version failing should not cancel the others; each result is useful.
       fail-fast: false
@@ -23,10 +25,48 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install system dependencies
+      # Root cause of the 2026-11-11 CI outage: both tools came from the
+      # runner's Ubuntu package mirror (azure.archive.ubuntu.com). When its
+      # DNS stopped resolving, apt retried for ~13 minutes and every Python
+      # job failed before a single test ran. Neither tool may depend on that
+      # mirror being up any more.
+
+      # exiftool is pure Perl (preinstalled on runners) and released upstream
+      # on GitHub. Pinned to the tag's commit, so a moved tag fails loudly.
+      - name: Install exiftool (pinned upstream release)
+        env:
+          EXIFTOOL_TAG: "13.63"
+          EXIFTOOL_COMMIT: "1da714924f67763b6a8a7013dd2aa1983a16f87b"
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libimage-exiftool-perl tesseract-ocr
+          git clone --quiet --depth 1 --branch "$EXIFTOOL_TAG" \
+            https://github.com/exiftool/exiftool.git "$RUNNER_TEMP/exiftool"
+          actual="$(git -C "$RUNNER_TEMP/exiftool" rev-parse HEAD)"
+          if [ "$actual" != "$EXIFTOOL_COMMIT" ]; then
+            echo "::error title=exiftool pin mismatch::tag $EXIFTOOL_TAG is $actual, expected $EXIFTOOL_COMMIT"
+            exit 1
+          fi
+          echo "$RUNNER_TEMP/exiftool" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/exiftool/exiftool" -ver
+
+      # tesseract only ships as a distro package. Short retries and a hard
+      # time limit; if the mirror is down the suite still runs (it passes
+      # without the binary) and the next step flags the lost OCR coverage.
+      - name: Install tesseract (best effort)
+        timeout-minutes: 4
+        continue-on-error: true
+        run: |
+          apt_opts="-o Acquire::Retries=2 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15"
+          sudo apt-get $apt_opts update
+          sudo apt-get $apt_opts install -y --no-install-recommends tesseract-ocr
+
+      - name: Report media tool coverage
+        run: |
+          exiftool -ver
+          if command -v tesseract >/dev/null 2>&1; then
+            tesseract --version 2>&1 | head -n 1
+          else
+            echo "::warning title=OCR not exercised::tesseract could not be installed (Ubuntu package mirror unreachable). Tests ran on the no-OCR path."
+          fi
 
       - name: Install Python dependencies
         run: |
@@ -47,6 +87,7 @@ jobs:
 
   webui-test:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -63,6 +104,7 @@ jobs:
 
   platform-test:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -90,6 +132,7 @@ jobs:
 
   platform-frontend-test:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
