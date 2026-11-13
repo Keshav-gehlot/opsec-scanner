@@ -284,6 +284,9 @@ opsec-scan \
 | `--report-activity URL` | Optional platform endpoint for posting a scan summary |
 | `--upload-findings` | With `--report-activity`: upload redacted findings to the web workspace |
 | `--report-activity-token TOKEN` | Token used with `--report-activity` |
+| `--fail-on-report-error` | With `--report-activity`: exit 3 if the report/upload failed (after writing local reports) |
+| `--platform-login URL` | Sign in, create a CLI access token, print `export OPSEC_PLATFORM_TOKEN=…`, exit |
+| `--verify-secrets` | Ask each credential's issuer whether it is still live; live ones become CRITICAL (opt-in, values never printed) |
 
 ## Project configuration
 
@@ -309,6 +312,26 @@ chmod +x .git/hooks/pre-push
 ```
 
 The sample hook is designed for incremental scanning of commits about to be pushed.
+
+### With the pre-commit framework
+
+```yaml
+# .pre-commit-config.yaml in the repository you want to protect
+repos:
+  - repo: https://github.com/Keshav-gehlot/opsec-scanner
+    rev: <tag or commit>
+    hooks:
+      - id: opsec-scan
+        # args: [--profile, target_profile.yaml, --fail-on, HIGH]
+```
+
+```bash
+pre-commit install --hook-type pre-push
+```
+
+The hook scans only the commits being pushed, scores them as exposed (`--public-repo`), blocks
+at MEDIUM or above, and writes its report to `.git/opsec-scan/pre-push-report.html` so the
+working tree is never modified.
 
 ## Optional platform
 
@@ -428,7 +451,17 @@ opsec-scan \
   --target-label my-repo
 ```
 
-A failed activity-report request does not fail the local scan.
+A failed activity-report request does not fail the local scan unless you pass
+`--fail-on-report-error` (exit code 3, after every local report is written).
+
+Get a token without crafting curl requests:
+
+```bash
+eval "$(opsec-scan --platform-login https://platform.example.com)"
+```
+
+It prompts for your email and a hidden password (or reads `OPSEC_PLATFORM_PASSWORD`), creates
+a scoped CLI access token, signs the temporary session out and prints only the export line.
 
 ## Architecture
 
@@ -543,13 +576,14 @@ Important operational rules:
 - Identity correlation is primarily exact/substring matching rather than full NLP/NER.
 - Entropy is a useful signal but cannot perfectly distinguish short human passwords from real high-entropy secrets.
 - OCR can corrupt characters and cause tight-format patterns to miss a finding.
-- Risk weights are fixture-calibrated and should be reviewed against real workloads.
+- Risk weights are fixture-calibrated and should be reviewed against real workloads. Without an identity-profile match a real credential scores MEDIUM at most; `--verify-secrets` escalates live ones to CRITICAL.
+- `--verify-secrets` covers GitHub, Slack, Stripe (secret/restricted keys), OpenAI, Anthropic, SendGrid, npm and Telegram. AWS access key IDs cannot be checked without their secret key.
 
 ### Platform limitations
 
 - OAuth credentials are deployment-specific.
-- The current platform uses SQLAlchemy `create_all()` rather than Alembic migrations.
-- Login rate limiting is primarily account/email based; add an IP/reverse-proxy control for internet-facing deployments.
+- Per-IP login limiting is only spoof-proof behind Vercel once `PLATFORM_PROXY_SECRET` is set on both Vercel and Render (see `opsec_platform/README.md`).
+- Password reset needs SMTP; without it, users change passwords from the Account page only.
 - Provider-specific email verification and identity-linking behavior should be reviewed before enabling production SSO.
 - SQLite is suitable for evaluation only; use PostgreSQL for production.
 
@@ -559,10 +593,12 @@ Important operational rules:
 
 `.github/workflows/ci.yml` runs:
 
-- scanner tests;
-- platform tests;
-- web UI tests;
-- Python 3.10, 3.11, and 3.12 coverage.
+- scanner tests (Python 3.10, 3.11, 3.12);
+- platform tests, including migrations against a Postgres 16 service container;
+- `alembic check` (models and migrations in sync);
+- mypy;
+- a check that the wheel ships the rules, static files and migrations;
+- web UI tests and a dependency audit.
 
 Keep CI green before merging.
 
@@ -590,6 +626,18 @@ uvicorn opsec_platform.app.main:app --host 0.0.0.0 --port $PORT
 Use a dedicated PostgreSQL database for production and keep database credentials in Render environment variables.
 
 ## Change history
+
+### v0.11
+
+- Security: client IP behind Vercel is only trusted with a shared proxy secret (`middleware.js` +
+  `PLATFORM_PROXY_SECRET`); optional lock-down of direct origin access.
+- Platform: Alembic migrations (production database adopted in place), password change,
+  forgot/reset password by email, `/health` reports package version, media-tool availability
+  and whether the request came through the proxy.
+- CLI: `--platform-login`, `--fail-on-report-error`, `--verify-secrets`; remediation for every
+  rule in HTML/JSON/SARIF and the workspace.
+- Packaging: detection rules ship inside the package (a plain `pip install` used to crash);
+  pre-commit hook; mypy and migration checks in CI.
 
 ### v0.9
 

@@ -1,6 +1,6 @@
 [project]
 name = "opsec-scanner"
-version = "0.10.0"
+version = "0.11.0"
 description = "Self-audit OPSEC leak scanner for git history, media metadata, and identity correlation."
 requires-python = ">=3.10"
 dependencies = [

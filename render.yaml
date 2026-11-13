@@ -28,6 +28,21 @@ services:
         value: https://opsec-scanner-seven.vercel.app
       - key: PLATFORM_JWT_SECRET
         sync: false
+      # Same value as the Vercel env var of the same name (middleware.js).
+      - key: PLATFORM_PROXY_SECRET
+        sync: false
+      # Set to "true" only after /health shows proxy_verified: true.
+      - key: PLATFORM_REQUIRE_PROXY_SECRET
+        value: "false"
+      # Password reset emails + email alerts (optional).
+      - key: PLATFORM_SMTP_HOST
+        sync: false
+      - key: PLATFORM_SMTP_USER
+        sync: false
+      - key: PLATFORM_SMTP_PASSWORD
+        sync: false
+      - key: PLATFORM_SMTP_FROM
+        sync: false
       - key: PLATFORM_OAUTH_SESSION_SECRET
         sync: false
       - key: DATABASE_URL
