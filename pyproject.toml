@@ -25,6 +25,7 @@ dependencies = [
     "email-validator>=2.0.0",
     "dnspython>=2.4.0",
     "cryptography>=42.0.0",
+    "alembic>=1.13.0",
 ]
 
 [project.optional-dependencies]

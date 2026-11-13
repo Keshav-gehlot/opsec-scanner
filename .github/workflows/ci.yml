@@ -105,6 +105,17 @@ jobs:
   platform-test:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    # Production runs on Postgres; migrations are also exercised against it.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: opsec
+          POSTGRES_PASSWORD: opsec-ci-only
+          POSTGRES_DB: opsec
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U opsec" --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
@@ -122,7 +133,16 @@ jobs:
         env:
           PLATFORM_JWT_SECRET: "ci-test-secret-not-for-production"
           PLATFORM_COOKIE_SECURE: "false"
+          OPSEC_TEST_POSTGRES_URL: "postgresql+psycopg://opsec:opsec-ci-only@localhost:5432/opsec"
         run: pytest tests_platform/ -v
+
+      - name: Models and migrations are in sync
+        env:
+          PLATFORM_COOKIE_SECURE: "false"
+          PLATFORM_DATABASE_URL: "sqlite:////tmp/alembic-check.db"
+        run: |
+          alembic upgrade head
+          alembic check
 
       - name: Audit dependencies for known vulnerabilities
         run: |
