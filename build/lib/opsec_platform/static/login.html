@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="OPSEC Scanner security operations platform">
+<meta name="theme-color" content="#070a0d">
+<title>OPSEC Scanner</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div class="app-shell">
+<header class="topbar">
+  <a class="brand" href="/" aria-label="OPSEC Scanner home">
+    <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3 20 6v5c0 5.2-3.4 8.6-8 10-4.6-1.4-8-4.8-8-10V6l8-3Z" stroke="currentColor" stroke-width="1.7"/><path d="m8.5 12 2.2 2.2 4.9-5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+    <span class="brand-copy"><strong>OPSEC Scanner</strong><span>Security operations platform</span></span>
+  </a>
+  <div class="status" aria-live="polite"><span id="statusDot" class="status-dot"></span><span id="statusText">Checking service…</span></div>
+</header>
+<main>
+<section id="authView" class="auth-layout" aria-label="Authentication">
+  <section class="hero">
+    <div class="eyebrow">Security operations</div>
+    <h1>Find the exposure before someone else does.</h1>
+    <p class="hero-lede">Scan git history, images and documents for leaked credentials, personal data and internal hosts. Track every finding across scans; secret values are never stored.</p>
+    <div class="signal-grid">
+      <div class="signal"><strong>Scan</strong><span>Public repositories, images, PDFs and Office files, or results uploaded from the CLI.</span></div>
+      <div class="signal"><strong>Prioritise</strong><span>Risk scored by severity, identity correlation and exposure.</span></div>
+      <div class="signal"><strong>Track</strong><span>New, still-open and resolved findings across every scan of a target.</span></div>
+    </div>
+  </section>
+  <section class="auth-card">
+    <div class="tabs" role="tablist" aria-label="Authentication mode">
+      <button id="loginTab" class="tab active" type="button" role="tab">Sign in</button>
+      <button id="registerTab" class="tab" type="button" role="tab">Create account</button>
+    </div>
+    <h2 id="formTitle" class="auth-title">Welcome back</h2>
+    <p id="formSubtext" class="subtext">Sign in to your OPSEC workspace.</p>
+    <div id="notice" class="notice" role="status" aria-live="polite"></div>
+    <form id="authForm" class="form">
+      <div id="orgField" class="field" hidden>
+        <label for="orgName">Organization</label>
+        <input id="orgName" class="input" name="org_name" type="text" maxlength="120" autocomplete="organization" placeholder="Your team or company">
+      </div>
+      <div id="emailField" class="field">
+        <label for="email">Email address</label>
+        <input id="email" class="input" name="email" type="email" maxlength="254" autocomplete="email" placeholder="you@example.com" required>
+      </div>
+      <div id="passwordField" class="field">
+        <label id="passwordLabel" for="password">Password</label>
+        <div class="input-wrap">
+          <input id="password" class="input" name="password" type="password" minlength="8" autocomplete="current-password" placeholder="Your password" required>
+          <button id="togglePassword" class="password-toggle" type="button" aria-label="Show password">Show</button>
+        </div>
+        <div class="password-meta"><span id="strengthText">Use a longer passphrase</span><span class="strength" aria-hidden="true"><i></i><i></i><i></i><i></i></span></div>
+        <p id="forgotRow" class="helper forgot-row" hidden><button id="forgotAction" type="button" class="link-button">Forgot password?</button></p>
+      </div>
+      <button id="submitButton" class="primary" type="submit">Sign in</button>
+    </form>
+    <p id="backRow" class="helper" hidden><button id="backAction" type="button" class="link-button">Back to sign in</button></p>
+    <div id="ssoLabel" class="divider" hidden>Single sign-on</div>
+    <div id="providers" class="providers" aria-live="polite"></div>
+    <p id="ssoEmpty" class="helper" hidden>No SSO provider is enabled on this deployment. Local sign-in is still available.</p>
+    <p class="helper switch-helper"><span id="switchHint">Need an account?</span> <button id="switchAction" type="button" class="link-button">Create one</button></p>
+  </section>
+</section>
+</main>
+</div>
+<script src="/static/login.js" defer></script>
+</body>
+</html>

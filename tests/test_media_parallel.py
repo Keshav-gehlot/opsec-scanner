@@ -105,7 +105,7 @@ def test_ocr_skips_oversized_images_before_ocr(monkeypatch, tmp_path):
 
 
 def test_pdf_media_scanner_extracts_metadata_and_body(tmp_path):
-    import fitz
+    import pymupdf as fitz
     from opsec_scanner.engines.media_engine import scan_pdf_metadata
 
     pdf_path = tmp_path / "sample.pdf"

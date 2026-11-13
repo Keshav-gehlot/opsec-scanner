@@ -1,7 +1,7 @@
 """
 Regex pattern engine.
 
-Loads the rule set from rules/patterns.yaml and scans RawFinding.raw_text
+Loads the rule set from opsec_scanner/rules/patterns.yaml and scans RawFinding.raw_text
 against every rule. Rules flagged requires_entropy_check get a second
 pass through entropy.py before being accepted — this is what stops
 "password=hunter2"-style low-entropy placeholders from scoring as
@@ -18,23 +18,22 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import os
+
 import yaml
 
 from opsec_scanner.analysis.entropy import calculate_entropy, is_high_entropy
 from opsec_scanner.models import RawFinding
 
 def _rules_dir() -> Path:
-    """The repo-level rules/ directory. Found next to the package for a
-    source checkout or editable install; a regular (non-editable) install
-    copies only the package into site-packages, so fall back to ./rules in
-    the working directory (how hosted deployments run from the checkout)."""
-    beside_package = Path(__file__).parent.parent.parent / "rules"
-    if (beside_package / "patterns.yaml").exists():
-        return beside_package
-    in_cwd = Path.cwd() / "rules"
-    if (in_cwd / "patterns.yaml").exists():
-        return in_cwd
-    return beside_package
+    """The bundled rule set (opsec_scanner/rules/, shipped as package data so
+    a regular `pip install` and the pre-commit hook work, not only editable
+    checkouts). OPSEC_RULES_DIR points at a replacement directory; individual
+    files can also be overridden with the config file's rules:/allowlist: keys."""
+    override = os.environ.get("OPSEC_RULES_DIR", "").strip()
+    if override:
+        return Path(override)
+    return Path(__file__).resolve().parent.parent / "rules"
 
 
 DEFAULT_RULES_PATH = _rules_dir() / "patterns.yaml"
@@ -247,13 +246,14 @@ def scan_findings(
             if rule.validator and not VALIDATORS[rule.validator](matched_text):
                 # Try the remaining matches in this text before giving up:
                 # the first number-shaped hit is often not the real one.
-                matched_text = next(
+                retry: str | None = next(
                     (other.group(0) for other in rule.pattern.finditer(text, m.end())
                      if VALIDATORS[rule.validator](other.group(0))),
                     None,
                 )
-                if matched_text is None:
+                if retry is None:
                     continue
+                matched_text = retry
 
             if allowlist.is_ignored(matched_text, finding.origin):
                 continue

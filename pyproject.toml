@@ -5,7 +5,7 @@ description = "Self-audit OPSEC leak scanner for git history, media metadata, an
 requires-python = ">=3.10"
 dependencies = [
     "GitPython>=3.1.43",
-    "PyMuPDF>=1.24.0",
+    "PyMuPDF>=1.24.3",
     "python-docx>=1.1.0",
     "PyYAML>=6.0.1",
     "rich>=13.7.0",
@@ -29,11 +29,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0.0", "pypdf>=4.0.0"]
+dev = ["pytest>=8.0.0", "pypdf>=4.0.0", "mypy>=1.10", "types-PyYAML"]
 platform = []
 
 [project.scripts]
 opsec-scan = "opsec_scanner.main:cli"
+opsec-scan-hook = "opsec_scanner.hook:main"
 
 [build-system]
 requires = ["setuptools>=68.0"]
@@ -42,5 +43,30 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 include = ["opsec_scanner*", "opsec_platform*"]
 
+[tool.setuptools.package-data]
+# Detection rules and the platform's browser files must ship in the wheel:
+# a non-editable install previously had neither rules/ (CLI crashed with
+# FileNotFoundError) nor relied on anything but the checkout's working dir.
+opsec_scanner = ["rules/*.yaml"]
+opsec_platform = ["static/*", "migrations/script.py.mako"]
+
 [tool.vercel]
 entrypoint = "opsec_platform.app.main:app"
+
+[tool.mypy]
+# Run in CI over both packages. The scanner is fully checked.
+packages = ["opsec_scanner", "opsec_platform"]
+python_version = "3.10"
+ignore_missing_imports = true
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+# Baseline for the platform: its SQLAlchemy models use classic Column()
+# declarations, which mypy types as Column[...] rather than the value type,
+# so these codes fire on nearly every model access (~150 false alarms).
+# Everything else (undefined names/attributes, wrong call arguments, bad
+# imports, syntax) is still checked. Tighten after moving models to
+# Mapped[...] annotations.
+module = "opsec_platform.*"
+disable_error_code = ["arg-type", "assignment", "misc", "valid-type", "var-annotated", "union-attr",
+                      "call-overload", "return-value", "list-item", "index"]

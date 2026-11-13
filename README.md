@@ -29,7 +29,7 @@
 | Goal | Where to look |
 | --- | --- |
 | Run the scanner | **Installation** → **CLI usage** |
-| Understand findings | **Detection and correlation** → `rules/` |
+| Understand findings | **Detection and correlation** → `opsec_scanner/rules/` |
 | Explore JSON findings | `webui/findings_explorer.html` |
 | Run the auth platform | `opsec_platform/README.md` |
 | Configure SSO | `opsec_platform/README.md` |
@@ -109,12 +109,12 @@ Missing or invalid input paths fail loudly rather than producing a misleading cl
 
 ### Detection and correlation
 
-Rules live in `rules/patterns.yaml` and can be extended with custom regexes.
+Rules live in `opsec_scanner/rules/patterns.yaml` (shipped with the package; point `OPSEC_RULES_DIR` or the config file's `rules:` key elsewhere to replace them) and can be extended with custom regexes.
 
 The scanner also supports:
 
 - Shannon-entropy gating for likely random secrets;
-- allowlisted findings and paths through `rules/allowlist.yaml`;
+- allowlisted findings and paths through `opsec_scanner/rules/allowlist.yaml` (or your own file via the config's `allowlist:` key);
 - identity correlation against names, aliases, email addresses, domains, handles, and optional locations;
 - finding deduplication across repeated appearances.
 
@@ -477,17 +477,20 @@ CLI ──(explicit activity report)──► FastAPI platform ──► SQL dat
 │   ├── engines/
 │   ├── output/
 │   ├── scoring/
+│   ├── rules/            # patterns.yaml + allowlist.yaml (shipped in the package)
 │   └── ...
 ├── opsec_platform/
 │   ├── app/
+│   ├── migrations/       # Alembic
 │   ├── static/
-│   ├── tests/
 │   └── README.md
 ├── tests/
 ├── tests_platform/
 ├── webui/
 ├── hooks/
-├── rules/
+├── middleware.js         # Vercel Routing Middleware (proxy secret)
+├── alembic.ini
+├── .pre-commit-hooks.yaml
 └── .github/workflows/ci.yml
 ```
 

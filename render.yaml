@@ -9,8 +9,8 @@ services:
     name: opsec-scanner-api
     runtime: python
     plan: free
-    # Matches the live service (verified 2026-11-11). The scanner finds
-    # rules/ through its ./rules fallback in the working directory.
+    # Matches the live service (verified 2026-11-11). Detection rules ship
+    # inside the package (opsec_scanner/rules/).
     buildCommand: pip install '.[platform]'
     startCommand: uvicorn opsec_platform.app.main:app --host 0.0.0.0 --port $PORT
     # Not yet set on the live service: set it in the dashboard

@@ -166,7 +166,7 @@ def rules_status() -> dict:
         from opsec_scanner.analysis.patterns import DEFAULT_RULES_PATH, load_rules
 
         if not DEFAULT_RULES_PATH.exists():
-            return {"ok": False, "rules": 0, "detail": "rules/patterns.yaml not found next to the package"}
+            return {"ok": False, "rules": 0, "detail": "opsec_scanner/rules/patterns.yaml not found (set OPSEC_RULES_DIR or reinstall)"}
         return {"ok": True, "rules": len(load_rules())}
     except BaseException as exc:  # load_rules exits on corrupt YAML
         return {"ok": False, "rules": 0, "detail": type(exc).__name__}

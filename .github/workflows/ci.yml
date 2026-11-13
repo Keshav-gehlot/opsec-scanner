@@ -76,6 +76,24 @@ jobs:
       - name: Run test suite
         run: pytest tests/ -v
 
+      - name: Wheel ships rules, static files and migrations
+        # A non-editable install (pip install ., the pre-commit hook) used to
+        # crash: rules/ lived outside the package and was not in the wheel.
+        if: matrix.python-version == '3.12'
+        run: |
+          pip wheel . --no-deps -q -w "$RUNNER_TEMP/wheel"
+          python - <<'PY'
+          import glob, os, zipfile
+          names = zipfile.ZipFile(glob.glob(os.path.join(os.environ["RUNNER_TEMP"], "wheel", "*.whl"))[0]).namelist()
+          for required in ("opsec_scanner/rules/patterns.yaml", "opsec_scanner/rules/allowlist.yaml",
+                           "opsec_platform/static/login.html", "opsec_platform/migrations/env.py"):
+              assert required in names, f"{required} missing from the wheel"
+          PY
+
+      - name: Type check (mypy)
+        if: matrix.python-version == '3.12'
+        run: mypy
+
       - name: Verify the installed console command actually works
         # Regression guard for the exact packaging bug found earlier in
         # this project's history: `pip install -e .` succeeding is not

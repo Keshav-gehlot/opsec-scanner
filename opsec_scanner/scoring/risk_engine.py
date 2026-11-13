@@ -11,7 +11,7 @@ V_exposure defaults are deliberately simple and configurable rather than
 hardcoded, since "reach" depends on context this tool doesn't always know
 (e.g. whether a repo is actually public vs. private-but-shared). Prompt
 #9 test fixtures should be used to calibrate S_base weights in
-rules/patterns.yaml against real output before trusting these scores
+opsec_scanner/rules/patterns.yaml against real output before trusting these scores
 at face value — see the note on the risk formula needing calibration
 data, not just designed values.
 """
