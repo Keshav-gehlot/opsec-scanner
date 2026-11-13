@@ -26,7 +26,7 @@ import pytest
 PLATFORM_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PLATFORM_ROOT))
 
-os.environ.setdefault("PLATFORM_JWT_SECRET", "test-secret-do-not-use-in-prod")
+os.environ.setdefault("PLATFORM_JWT_SECRET", "test-secret-do-not-use-in-prod-0123456789")
 os.environ.setdefault("PLATFORM_COOKIE_SECURE", "false")
 
 from opsec_scanner.output.platform_client import (

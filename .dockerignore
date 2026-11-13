@@ -1,0 +1,13 @@
+.git
+**/__pycache__
+**/*.pyc
+.venv
+.pytest_cache
+.opsec-scan
+webui/node_modules
+*.db
+opsec_platform/.env
+tests
+tests_platform
+demo_*
+sample_demo_repo

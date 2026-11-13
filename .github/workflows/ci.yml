@@ -195,3 +195,28 @@ jobs:
               js = Path("opsec_platform/static", name).read_text()
               assert 'style="' not in js, f"{name} must not generate inline style attributes"
           PY
+
+  docker-image:
+    # The production image (Render runtime: docker). Proves it builds, starts,
+    # migrates an empty database and has the media tools (audit P4).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: docker build -t opsec-api:ci .
+      - name: Start and check /health
+        run: |
+          docker run -d --name api -p 10000:10000 \
+            -e PLATFORM_JWT_SECRET=ci-only-jwt-secret-0123456789abcdefghij \
+            -e PLATFORM_COOKIE_SECURE=false \
+            -e PLATFORM_DATABASE_URL=sqlite:////tmp/ci.db \
+            -e PLATFORM_SCHEDULER_ENABLED=false \
+            opsec-api:ci
+          for i in $(seq 1 30); do curl -fsS localhost:10000/health/live >/dev/null && break; sleep 2; done
+          body=$(curl -fsS localhost:10000/health); echo "$body"
+          echo "$body" | python3 -c 'import json,sys; s=json.load(sys.stdin)["scanner"]; assert s["ok"] and s["exiftool_available"] and s["ocr_available"], s'
+          docker exec api sh -c 'id -u && git --version && exiftool -ver && tesseract --version | head -1'
+      - name: Logs on failure
+        if: failure()
+        run: docker logs api || true

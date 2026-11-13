@@ -88,6 +88,17 @@ def run_bootstrap_admin(session_factory, email: str, password: str, secure: bool
             return "created"
 
         changed = "unchanged"
+        if admin.org_id is None:
+            # An existing personal account (e.g. created by Google sign-in)
+            # being made the bootstrap admin: admin features require an org,
+            # so promoting is_org_admin alone left it unable to manage anything.
+            org = db.query(Org).filter(Org.name == BOOTSTRAP_ORG_NAME).first()
+            if org is None:
+                org = Org(name=BOOTSTRAP_ORG_NAME)
+                db.add(org)
+                db.flush()
+            admin.org_id = org.id
+            changed = "promoted"
         if not admin.is_org_admin:
             admin.is_org_admin = True
             changed = "promoted"

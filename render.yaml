@@ -1,25 +1,24 @@
 # Render Blueprint for the platform API (https://render.com/docs/blueprint-spec).
 #
-# Documents the intended configuration of the existing "opsec-scanner-api"
-# service. Render only applies this file if the service is managed as a
-# Blueprint; otherwise compare it against the dashboard settings by hand.
+# Configuration of the "opsec-scanner-api" service. When the service is
+# managed as a Blueprint, Render applies this file on every push to main;
+# otherwise compare it against the dashboard settings by hand.
 # Secret values are never stored here (sync: false = set in the dashboard).
 services:
   - type: web
     name: opsec-scanner-api
-    runtime: python
+    # Docker, not the native Python runtime: the image adds exiftool and
+    # tesseract so uploaded media get EXIF and OCR analysis (audit P4).
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
     plan: free
-    # Matches the live service (verified 2026-11-11). Detection rules ship
-    # inside the package (opsec_scanner/rules/).
-    buildCommand: pip install '.[platform]'
-    startCommand: uvicorn opsec_platform.app.main:app --host 0.0.0.0 --port $PORT
-    # Not yet set on the live service: set it in the dashboard
-    # (Settings > Health Check Path) so Render restarts a broken instance.
+    region: singapore
+    branch: main
+    # Render restarts an instance whose database check fails (audit P2).
     healthCheckPath: /health/ready
     autoDeploy: true
     envVars:
-      - key: PYTHON_VERSION
-        value: "3.12.7"
       - key: PLATFORM_COOKIE_SECURE
         value: "true"
       - key: PLATFORM_BASE_URL
@@ -30,6 +29,9 @@ services:
         sync: false
       # Same value as the Vercel env var of the same name (middleware.js).
       - key: PLATFORM_PROXY_SECRET
+        sync: false
+      # Same value as the repository secret of the same name (keep-alive workflow).
+      - key: PLATFORM_SCHEDULER_TOKEN
         sync: false
       # Set to "true" only after /health shows proxy_verified: true.
       - key: PLATFORM_REQUIRE_PROXY_SECRET

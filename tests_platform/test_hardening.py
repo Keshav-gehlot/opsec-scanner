@@ -181,3 +181,25 @@ def test_since_ref_accepts_normal_refs():
 
     for ref in ("origin/main", "HEAD~3", "v1.2.0", "abc1234"):
         assert validate_ref(ref) == ref
+
+
+def test_bootstrap_promotes_existing_sso_account_into_an_org(monkeypatch):
+    """Production state on 2026-11-13: the intended admin signed up with
+    Google (personal account, no org, no password). Making it the bootstrap
+    admin must give it an org, or every admin page stays forbidden."""
+    from opsec_platform.app.bootstrap import run_bootstrap_admin
+    from opsec_platform.app.models import Org, User
+    import opsec_platform.app.dependencies as deps
+
+    _client(monkeypatch)
+    db = deps._SessionLocal()
+    db.add(User(email="owner@example.com", auth_provider="google", provider_user_id="g-1", is_active=True))
+    db.commit()
+    db.close()
+
+    assert run_bootstrap_admin(deps._SessionLocal, "owner@example.com", "Correct-Horse-Battery-1", secure=True) == "rotated"
+    db = deps._SessionLocal()
+    user = db.query(User).filter(User.email == "owner@example.com").first()
+    assert user.is_org_admin and user.org_id is not None
+    assert db.get(Org, user.org_id).name == "OPSEC Scanner"
+    db.close()

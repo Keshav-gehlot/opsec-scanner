@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.staticfiles import StaticFiles
 
-from opsec_platform.app import activity_routes, auth_routes, monitor_routes, oauth_routes, password_routes, scan_routes
+from opsec_platform.app import activity_routes, auth_routes, internal_routes, monitor_routes, oauth_routes, password_routes, scan_routes
 from opsec_platform.app.config import get_settings
 from opsec_platform.app.database import init_db
 from opsec_platform.app.dependencies import configure_db
@@ -131,6 +131,7 @@ def create_app() -> FastAPI:
 
     app.include_router(auth_routes.router)
     app.include_router(password_routes.router)
+    app.include_router(internal_routes.router)
     app.include_router(oauth_routes.router)
     app.include_router(activity_routes.router)
     app.include_router(scan_routes.router)

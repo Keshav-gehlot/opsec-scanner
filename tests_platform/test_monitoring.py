@@ -444,3 +444,17 @@ def test_handle_collector_reports_rate_limit():
 
     result = collectors.github_handle("x", api_get=lambda *a, **k: FakeResponse(status=403, json_data={}))
     assert any("PLATFORM_GITHUB_TOKEN" in n for n in result.notes)
+
+
+def test_scheduler_trigger_endpoint_is_token_gated(monkeypatch):
+    from test_hardening import _client
+
+    client = _client(monkeypatch)
+    monkeypatch.delenv("PLATFORM_SCHEDULER_TOKEN", raising=False)
+    assert client.post("/internal/scheduler/run").status_code == 404  # disabled without a token
+    token = "scheduler-token-for-tests-0123456789abcdef"
+    monkeypatch.setenv("PLATFORM_SCHEDULER_TOKEN", token)
+    assert client.post("/internal/scheduler/run").status_code == 401
+    assert client.post("/internal/scheduler/run", headers={"Authorization": "Bearer nope"}).status_code == 401
+    r = client.post("/internal/scheduler/run", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200 and r.json() == {"started": 0}
