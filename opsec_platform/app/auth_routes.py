@@ -58,6 +58,7 @@ class UserOut(BaseModel):
     auth_provider: str
     is_org_admin: bool
     is_active: bool
+    has_password: bool = False
     created_at: datetime
     last_login_at: datetime | None
     model_config = ConfigDict(from_attributes=True)

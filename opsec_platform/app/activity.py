@@ -27,12 +27,19 @@ class EventType:
     SCAN_DELETED = "scan_deleted"
     TOKEN_CREATED = "token_created"
     TOKEN_REVOKED = "token_revoked"
+    PASSWORD_CHANGED = "password_changed"
+    PASSWORD_CHANGE_FAILED = "password_change_failed"
+    PASSWORD_RESET_REQUESTED = "password_reset_requested"
+    PASSWORD_RESET_COMPLETED = "password_reset_completed"
+    PASSWORD_RESET_FAILED = "password_reset_failed"
 
     ALL = {
         LOGIN_SUCCESS, LOGIN_FAILED, LOGIN_RATE_LIMITED, OAUTH_LOGIN_SUCCESS, OAUTH_LOGIN_FAILED,
         OAUTH_LINK_REQUIRED, OAUTH_LINKED, LOGOUT, USER_CREATED, REGISTRATION_REJECTED,
         REGISTRATION_RATE_LIMITED, MEMBER_UPDATED, SCAN_REPORTED,
         SCAN_IMPORTED, SCAN_STARTED, SCAN_DELETED, TOKEN_CREATED, TOKEN_REVOKED,
+        PASSWORD_CHANGED, PASSWORD_CHANGE_FAILED, PASSWORD_RESET_REQUESTED,
+        PASSWORD_RESET_COMPLETED, PASSWORD_RESET_FAILED,
     }
 
 
@@ -109,3 +116,19 @@ def is_registration_rate_limited(db: DBSession, ip_address: str | None) -> bool:
         ActivityLog.ip_address == ip_address,
     ).count()
     return attempts >= settings.register_rate_limit_attempts
+
+
+def count_recent(db: DBSession, event_types: list[str], minutes: int, *, ip_address: str | None = None,
+                 user_id: str | None = None, detail: str | None = None) -> int:
+    """Events of the given types in the last `minutes`, narrowed by IP, user or exact detail."""
+    query = db.query(ActivityLog).filter(
+        ActivityLog.event_type.in_(event_types),
+        ActivityLog.timestamp >= datetime.now(timezone.utc) - timedelta(minutes=minutes),
+    )
+    if ip_address is not None:
+        query = query.filter(ActivityLog.ip_address == ip_address)
+    if user_id is not None:
+        query = query.filter(ActivityLog.user_id == user_id)
+    if detail is not None:
+        query = query.filter(ActivityLog.detail == detail)
+    return query.count()

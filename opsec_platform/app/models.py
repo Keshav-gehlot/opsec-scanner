@@ -86,6 +86,11 @@ class User(Base):
     @property
     def org_name(self) -> str | None:
         return self.org.name if self.org is not None else None
+
+    @property
+    def has_password(self) -> bool:
+        return bool(self.hashed_password)
+
     identities = relationship("UserIdentity", back_populates="user")
 
 

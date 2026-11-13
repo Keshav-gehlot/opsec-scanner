@@ -174,15 +174,20 @@ def send(kind: str, config: dict, alert: dict, user_email: str, post=net.safe_re
         raise IntegrationError(f"Destination returned HTTP {response.status_code}.")
 
 
-def _send_email(to: str, alert: dict) -> None:
+def smtp_configured() -> bool:
+    return bool(os.environ.get("PLATFORM_SMTP_HOST", "").strip())
+
+
+def send_mail(to: str, subject: str, body: str) -> None:
+    """Plain-text email through the configured SMTP server (alerts, password resets)."""
     host = os.environ.get("PLATFORM_SMTP_HOST", "")
     if not host:
         raise IntegrationError("SMTP is not configured.")
     message = EmailMessage()
-    message["Subject"] = alert["title"]
+    message["Subject"] = subject
     message["From"] = os.environ.get("PLATFORM_SMTP_FROM", "opsec-scanner@localhost")
     message["To"] = to
-    message.set_content(_text(alert))
+    message.set_content(body)
     port = int(os.environ.get("PLATFORM_SMTP_PORT", "587"))
     with smtplib.SMTP(host, port, timeout=15) as smtp:
         if os.environ.get("PLATFORM_SMTP_STARTTLS", "true").lower() != "false":
@@ -191,6 +196,10 @@ def _send_email(to: str, alert: dict) -> None:
         if user:
             smtp.login(user, os.environ.get("PLATFORM_SMTP_PASSWORD", ""))
         smtp.send_message(message)
+
+
+def _send_email(to: str, alert: dict) -> None:
+    send_mail(to, alert["title"], _text(alert))
 
 
 def findings_to_alert(db, scan: Scan, integration: Integration) -> list[Finding]:

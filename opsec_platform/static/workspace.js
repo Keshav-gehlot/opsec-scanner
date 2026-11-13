@@ -528,7 +528,7 @@ async function renderTokens() {
 // ------------------------------------------------------------------ account
 
 function activityBadge(type) {
-  if (/success|created|reported|imported|linked/.test(type)) return "good";
+  if (/success|created|reported|imported|linked|changed|completed/.test(type)) return "good";
   if (/failed|limited|revoked|deleted/.test(type)) return "warn";
   return "";
 }
@@ -542,12 +542,32 @@ async function renderAccount() {
       .map(([k, v]) => '<div class="kv-row"><span>' + esc(k) + "</span><strong>" + esc(v) + "</strong></div>").join("") + "</div></section>";
   html += '<section class="card"><div class="card-head"><div><h3>Active sessions</h3><p class="card-subtext">Browsers and devices currently signed in.</p></div><button id="revokeOthers" class="secondary compact" type="button"' + (sessions.length > 1 ? "" : " disabled") + '>Sign out other sessions</button></div><div class="sessions">' +
     (sessions.length ? sessions.map((s) => '<div class="session"><div class="session-meta"><strong>' + esc(s.user_agent || "Unknown browser") + "</strong><span>" + esc(s.ip_address || "Unknown IP") + " · signed in " + esc(fmtDate(s.created_at)) + (s.current ? " · this browser" : "") + "</span></div>" + (s.current ? '<span class="badge good">Current</span>' : '<button class="danger" type="button" data-revoke="' + esc(s.id) + '">Revoke</button>') + "</div>").join("") : '<div class="empty">No active sessions.</div>') + "</div></section></div>";
+  html += '<section class="card section"><h3>' + (user.has_password ? "Change password" : "Set a password") + '</h3><p class="card-subtext">' +
+    (user.has_password ? "Changing your password signs out every other session." : "Your account signs in with single sign-on only. Add a password to also sign in with your email; for safety this only works within 15 minutes of signing in.") +
+    '</p><form id="passwordForm" class="form-grid section">' +
+    (user.has_password ? '<div class="field"><label for="pwCurrent">Current password</label><input id="pwCurrent" class="input" type="password" required maxlength="128" autocomplete="current-password"></div>' : "") +
+    '<div class="field"><label for="pwNew">New password</label><input id="pwNew" class="input" type="password" required minlength="8" maxlength="72" autocomplete="new-password"></div>' +
+    '<div class="field"><label for="pwConfirm">Confirm new password</label><input id="pwConfirm" class="input" type="password" required minlength="8" maxlength="72" autocomplete="new-password"></div>' +
+    '<div><button class="btn" type="submit">' + (user.has_password ? "Change password" : "Set password") + "</button></div></form></section>";
   html += '<section class="card section"><h3>Recent activity</h3><div class="activity">' +
     (activity.length ? activity.map((a) => '<div class="activity-item"><div class="activity-main"><span><span class="badge ' + activityBadge(a.event_type) + '">' + esc(a.event_type.replaceAll("_", " ")) + '</span></span><span class="activity-time">' + esc(fmtDate(a.timestamp)) + "</span></div>" + (a.detail ? '<div class="activity-detail">' + esc(a.detail) + "</div>" : "") + "</div>").join("") : '<div class="empty">No activity yet.</div>') + "</div></section>";
   view().innerHTML = html;
   view().querySelectorAll("[data-revoke]").forEach((b) => b.addEventListener("click", async () => {
     try { await api("/auth/sessions/" + encodeURIComponent(b.dataset.revoke), { method: "DELETE" }); notice("success", "Session revoked."); renderAccount(); } catch (error) { notice("error", error.message); }
   }));
+  $("passwordForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if ($("pwNew").value !== $("pwConfirm").value) { notice("error", "The new passwords do not match."); return; }
+    const body = { new_password: $("pwNew").value };
+    if ($("pwCurrent")) body.current_password = $("pwCurrent").value;
+    const button = e.submitter || $("passwordForm").querySelector("button");
+    button.disabled = true;
+    try {
+      const r = await api("/auth/password", { method: "POST", body: JSON.stringify(body) });
+      notice("success", r.detail + (r.other_sessions_revoked ? " " + plural(r.other_sessions_revoked, "other session") + " signed out." : ""));
+      renderAccount();
+    } catch (error) { notice("error", error.message); button.disabled = false; }
+  });
   $("revokeOthers").addEventListener("click", async () => {
     try { const r = await api("/auth/sessions/revoke-others", { method: "POST" }); notice("success", r.revoked ? plural(r.revoked, "other session") + " signed out." : "No other sessions."); renderAccount(); } catch (error) { notice("error", error.message); }
   });
