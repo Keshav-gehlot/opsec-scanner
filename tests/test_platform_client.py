@@ -189,3 +189,91 @@ def test_upload_findings_rejects_plain_http():
     from opsec_scanner.output.platform_client import upload_findings
     with pytest.raises(ActivityReportError, match="plain HTTP"):
         upload_findings("http://platform.example.invalid", "t", _scored_findings(), "x")
+
+
+# --- --platform-login / create_cli_token ---------------------------------------
+
+def _register(base_url, email="cli-user@example.com", password="testpass123"):
+    import httpx
+    with httpx.Client(base_url=base_url) as client:
+        client.post("/auth/register", json={"email": email, "password": password, "org_name": "CLI Org"})
+
+
+def test_session_token_from_set_cookie():
+    from opsec_scanner.output.platform_client import session_token_from_set_cookie
+    assert session_token_from_set_cookie("opsec_session=abc.def; HttpOnly; Path=/") == "abc.def"
+    assert session_token_from_set_cookie("other=1") is None
+
+
+def test_create_cli_token_mints_scoped_access_token_and_signs_session_out(live_platform_url):
+    import httpx
+    from opsec_scanner.output.platform_client import create_cli_token
+
+    _register(live_platform_url)
+    created = create_cli_token(live_platform_url, "cli-user@example.com", "testpass123", "cli test", expires_in_days=30)
+    token = created["token"]
+    assert token.startswith("opsec_pat_")
+    # The access token works for what the CLI needs...
+    assert "id" in report_scan_activity(live_platform_url, token, _scored_findings(), "my-repo")
+    with httpx.Client(base_url=live_platform_url) as client:
+        # ...but not for account management.
+        assert client.get("/auth/sessions", headers={"Authorization": f"Bearer {token}"}).status_code == 403
+        # The temporary browser session used to mint it was signed out again.
+        login = client.post("/auth/login", json={"email": "cli-user@example.com", "password": "testpass123"})
+        sessions = client.get("/auth/sessions").json()
+    assert login.status_code == 200 and len(sessions) == 1
+
+
+def test_create_cli_token_wrong_password_gives_clear_error(live_platform_url):
+    from opsec_scanner.output.platform_client import create_cli_token
+
+    _register(live_platform_url)
+    with pytest.raises(ActivityReportError, match="incorrect"):
+        create_cli_token(live_platform_url, "cli-user@example.com", "not-the-password", "cli test")
+
+
+def test_platform_login_cli_prints_only_an_export_line(live_platform_url):
+    import subprocess
+    _register(live_platform_url)
+    result = subprocess.run(
+        [sys.executable, "-m", "opsec_scanner.main", "--platform-login", live_platform_url,
+         "--platform-email", "cli-user@example.com", "--token-days", "30"],
+        capture_output=True, text=True, timeout=60,
+        env={**os.environ, "OPSEC_PLATFORM_PASSWORD": "testpass123"},
+    )
+    assert result.returncode == 0, result.stderr
+    lines = result.stdout.strip().splitlines()
+    assert len(lines) == 1 and lines[0].startswith("export OPSEC_PLATFORM_TOKEN=opsec_pat_")
+    assert "testpass123" not in result.stdout + result.stderr
+
+
+# --- --fail-on-report-error -------------------------------------------------------
+
+def _leak_repo(tmp_path):
+    import subprocess
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    for args in (["init", "-q"], ["config", "user.name", "T"], ["config", "user.email", "t@example.com"]):
+        subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
+    (repo / "secret.txt").write_text("postgres://admin:Password123@db.internal.co:5432/main\n")
+    subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-q", "-m", "x"], cwd=repo, check=True, capture_output=True)
+    return repo
+
+
+@pytest.mark.parametrize("extra,expected", [([], 0), (["--fail-on-report-error"], 3),
+                                            (["--fail-on-report-error", "--fail-on", "LOW"], 1)])
+def test_fail_on_report_error_exit_codes(tmp_path, extra, expected):
+    import subprocess
+    repo = _leak_repo(tmp_path)
+    dead = f"http://127.0.0.1:{_free_port()}"  # nothing listens here
+    profile = tmp_path / "profile.yaml"
+    profile.write_text("name: Test User\naliases: []\nemails: []\ndomains: []\n")
+    result = subprocess.run(
+        [sys.executable, "-m", "opsec_scanner.main", "--repo", str(repo), "--no-progress", "--profile", str(profile),
+         "--output", str(tmp_path / "r.html"), "--report-activity", dead,
+         "--report-activity-token", "opsec_pat_dummy", *extra],
+        capture_output=True, text=True, timeout=120, cwd=tmp_path,
+    )
+    assert result.returncode == expected, result.stdout + result.stderr
+    assert (tmp_path / "r.html").exists()  # local reports are always written first
