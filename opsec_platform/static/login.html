@@ -43,20 +43,22 @@
         <label for="orgName">Organization</label>
         <input id="orgName" class="input" name="org_name" type="text" maxlength="120" autocomplete="organization" placeholder="Your team or company">
       </div>
-      <div class="field">
+      <div id="emailField" class="field">
         <label for="email">Email address</label>
         <input id="email" class="input" name="email" type="email" maxlength="254" autocomplete="email" placeholder="you@example.com" required>
       </div>
-      <div class="field">
-        <label for="password">Password</label>
+      <div id="passwordField" class="field">
+        <label id="passwordLabel" for="password">Password</label>
         <div class="input-wrap">
           <input id="password" class="input" name="password" type="password" minlength="8" autocomplete="current-password" placeholder="Your password" required>
           <button id="togglePassword" class="password-toggle" type="button" aria-label="Show password">Show</button>
         </div>
         <div class="password-meta"><span id="strengthText">Use a longer passphrase</span><span class="strength" aria-hidden="true"><i></i><i></i><i></i><i></i></span></div>
+        <p id="forgotRow" class="helper forgot-row" hidden><button id="forgotAction" type="button" class="link-button">Forgot password?</button></p>
       </div>
       <button id="submitButton" class="primary" type="submit">Sign in</button>
     </form>
+    <p id="backRow" class="helper" hidden><button id="backAction" type="button" class="link-button">Back to sign in</button></p>
     <div id="ssoLabel" class="divider" hidden>Single sign-on</div>
     <div id="providers" class="providers" aria-live="polite"></div>
     <p id="ssoEmpty" class="helper" hidden>No SSO provider is enabled on this deployment. Local sign-in is still available.</p>

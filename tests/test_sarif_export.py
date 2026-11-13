@@ -78,3 +78,20 @@ def test_sarif_dedupes_rule_declarations_across_multiple_findings(tmp_path):
 
     assert len(data["runs"][0]["tool"]["driver"]["rules"]) == 1  # one rule declared, not three
     assert len(data["runs"][0]["results"]) == 3  # but three results
+
+
+def test_remediation_reaches_sarif_json_and_html(tmp_path):
+    from opsec_scanner.output.dashboard import render_dashboard
+    from opsec_scanner.output.json_export import export_json
+
+    scored = _scored()
+    export_sarif(scored, tmp_path / "r.sarif")
+    rule = json.loads((tmp_path / "r.sarif").read_text())["runs"][0]["tool"]["driver"]["rules"][0]
+    assert "IAM" in rule["help"]["text"]
+    assert rule and json.loads((tmp_path / "r.sarif").read_text())["runs"][0]["tool"]["driver"]["version"] != "0.3.0"
+
+    export_json(scored, tmp_path / "r.json")
+    assert "IAM" in json.loads((tmp_path / "r.json").read_text())["findings"][0]["remediation"]
+
+    render_dashboard(scored, tmp_path / "r.html")
+    assert "How to fix:" in (tmp_path / "r.html").read_text()

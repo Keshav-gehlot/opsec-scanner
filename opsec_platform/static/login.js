@@ -3,7 +3,7 @@
 // workspace.js; the server redirects between the two, so neither page ever
 // renders the other's markup.
 const $ = (id) => document.getElementById(id);
-const state = { mode: "login", loading: false };
+const state = { mode: "login", loading: false, resetAvailable: false, resetToken: "", ssoProviders: [] };
 
 const providerMeta={
   google:{label:"Google",icon:'<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M21.35 12.23c0-.68-.06-1.35-.18-1.98H12v3.75h5.23a4.48 4.48 0 0 1-1.94 2.94v2.45h3.14c1.84-1.69 2.92-4.18 2.92-7.16Z"/><path fill="#34A853" d="M12 21.7c2.63 0 4.84-.87 6.45-2.35l-3.14-2.45c-.87.58-1.98.93-3.31.93-2.54 0-4.69-1.72-5.46-4.03H3.3v2.53A9.74 9.74 0 0 0 12 21.7Z"/><path fill="#FBBC05" d="M6.54 13.8a5.85 5.85 0 0 1 0-3.6V7.67H3.3a9.73 9.73 0 0 0 0 8.66l3.24-2.53Z"/><path fill="#EA4335" d="M12 6.17c1.43 0 2.72.49 3.73 1.46l2.8-2.8C16.84 3.19 14.63 2.3 12 2.3a9.74 9.74 0 0 0-8.7 5.37l3.24 2.53C7.85 7.89 9.99 6.17 12 6.17Z"/></svg>'},
@@ -36,22 +36,48 @@ async function api(url, options = {}) {
   return body;
 }
 
+const MODES = {
+  login: { title: "Welcome back", sub: "Sign in to your OPSEC workspace.", submit: "Sign in", busy: "Signing in…" },
+  register: { title: "Create your account", sub: "Start a workspace. The first member becomes its administrator.", submit: "Create account", busy: "Creating account…" },
+  forgot: { title: "Reset your password", sub: "Enter your account email and we'll send a link to choose a new password.", submit: "Send reset link", busy: "Sending…" },
+  reset: { title: "Choose a new password", sub: "This signs you out everywhere else.", submit: "Set new password", busy: "Saving…" },
+};
+
 function setMode(mode) {
   state.mode = mode;
   clearNotice();
+  const m = MODES[mode];
   const register = mode === "register";
-  $("loginTab").classList.toggle("active", !register);
+  const tabbed = mode === "login" || register;
+  const needsEmail = mode !== "reset";
+  const needsPassword = mode !== "forgot";
+  const choosing = register || mode === "reset";
+  document.querySelector(".tabs").hidden = !tabbed;
+  $("loginTab").classList.toggle("active", mode === "login");
   $("registerTab").classList.toggle("active", register);
-  $("loginTab").setAttribute("aria-selected", String(!register));
+  $("loginTab").setAttribute("aria-selected", String(mode === "login"));
   $("registerTab").setAttribute("aria-selected", String(register));
-  $("formTitle").textContent = register ? "Create your account" : "Welcome back";
-  $("formSubtext").textContent = register ? "Start a workspace. The first member becomes its administrator." : "Sign in to your OPSEC workspace.";
+  $("formTitle").textContent = m.title;
+  $("formSubtext").textContent = m.sub;
   $("orgField").hidden = !register;
-  // The strength meter only helps when choosing a password, not when typing an existing one.
-  document.querySelector(".password-meta").hidden = !register;
   $("orgName").required = register;
-  $("submitButton").textContent = register ? "Create account" : "Sign in";
-  $("password").autocomplete = register ? "new-password" : "current-password";
+  $("emailField").hidden = !needsEmail;
+  $("email").required = needsEmail;
+  $("passwordField").hidden = !needsPassword;
+  $("password").required = needsPassword;
+  $("passwordLabel").textContent = mode === "reset" ? "New password" : "Password";
+  // The strength meter only helps when choosing a password, not when typing an existing one.
+  document.querySelector(".password-meta").hidden = !choosing;
+  $("forgotRow").hidden = !(mode === "login" && state.resetAvailable);
+  $("submitButton").textContent = m.submit;
+  $("password").autocomplete = choosing ? "new-password" : "current-password";
+  $("password").placeholder = choosing ? "At least 8 characters" : "Your password";
+  document.querySelector(".switch-helper").hidden = !tabbed;
+  $("backRow").hidden = tabbed;
+  const sso = tabbed && state.ssoProviders.length > 0;
+  $("ssoLabel").hidden = !sso;
+  $("providers").hidden = !tabbed;
+  $("ssoEmpty").hidden = !tabbed || state.ssoProviders.length > 0;
   $("switchHint").textContent = register ? "Already have an account?" : "Need an account?";
   $("switchAction").textContent = register ? "Sign in" : "Create one";
 }
@@ -83,10 +109,12 @@ function updateStrength() {
 }
 
 function renderProviders(providers) {
+  state.ssoProviders = providers;
   const wrap = $("providers");
   wrap.innerHTML = "";
-  if (!providers.length) { $("ssoLabel").hidden = true; $("ssoEmpty").hidden = false; return; }
-  $("ssoLabel").hidden = false;
+  const tabbed = state.mode === "login" || state.mode === "register";
+  if (!providers.length) { $("ssoLabel").hidden = true; $("ssoEmpty").hidden = !tabbed; return; }
+  $("ssoLabel").hidden = !tabbed;
   $("ssoEmpty").hidden = true;
   providers.forEach((provider) => {
     const meta = providerMeta[provider] || { label: provider, icon: "" };
@@ -110,6 +138,8 @@ async function loadHealth() {
     $("statusDot").classList.remove("waking");
     $("statusText").textContent = data.database === "ok" ? "All systems operational" : "Limited availability";
     $("statusDot").classList.toggle("offline", data.database !== "ok");
+    state.resetAvailable = Boolean(data.features?.password_reset);
+    $("forgotRow").hidden = !(state.mode === "login" && state.resetAvailable);
     renderProviders(Array.isArray(data.sso_providers_configured) ? data.sso_providers_configured : []);
   } catch {
     clearTimeout(waking);
@@ -123,7 +153,7 @@ async function loadHealth() {
 function setLoading(value) {
   state.loading = value;
   $("submitButton").disabled = value;
-  $("submitButton").textContent = value ? (state.mode === "register" ? "Creating account…" : "Signing in…") : (state.mode === "register" ? "Create account" : "Sign in");
+  $("submitButton").textContent = value ? MODES[state.mode].busy : MODES[state.mode].submit;
 }
 
 function showSsoNotice() {
@@ -148,6 +178,8 @@ $("togglePassword").addEventListener("click", () => {
   $("togglePassword").textContent = visible ? "Show" : "Hide";
   $("togglePassword").setAttribute("aria-label", visible ? "Show password" : "Hide password");
 });
+$("forgotAction").addEventListener("click", () => { const email = $("email").value; setMode("forgot"); $("email").value = email; $("email").focus(); });
+$("backAction").addEventListener("click", () => { state.resetToken = ""; setMode("login"); });
 $("password").addEventListener("input", updateStrength);
 $("email").addEventListener("input", updateStrength);
 
@@ -155,12 +187,27 @@ $("authForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   clearNotice();
   setLoading(true);
-  const payload = { email: $("email").value.trim(), password: $("password").value };
-  if (state.mode === "register") {
-    payload.org_name = $("orgName").value.trim();
-    payload.display_name = payload.email.split("@")[0];
-  }
   try {
+    if (state.mode === "forgot") {
+      const r = await api("/auth/forgot-password", { method: "POST", body: JSON.stringify({ email: $("email").value.trim() }) });
+      showNotice("success", r.detail + " Check your inbox (and spam folder); the link works for 30 minutes.");
+      return;
+    }
+    if (state.mode === "reset") {
+      const r = await api("/auth/reset-password", { method: "POST", body: JSON.stringify({ token: state.resetToken, new_password: $("password").value }) });
+      state.resetToken = "";
+      $("authForm").reset();
+      updateStrength();
+      setMode("login");
+      showNotice("success", r.detail);
+      $("email").focus();
+      return;
+    }
+    const payload = { email: $("email").value.trim(), password: $("password").value };
+    if (state.mode === "register") {
+      payload.org_name = $("orgName").value.trim();
+      payload.display_name = payload.email.split("@")[0];
+    }
     await api(state.mode === "register" ? "/auth/register" : "/auth/login", { method: "POST", body: JSON.stringify(payload) });
     if (state.mode === "register") {
       $("authForm").reset();
@@ -173,7 +220,8 @@ $("authForm").addEventListener("submit", async (event) => {
       window.location.assign("/dashboard");
     }
   } catch (error) {
-    if (error.status === 429) showNotice("error", "Too many failed attempts. Wait a few minutes and try again.");
+    if (state.mode === "forgot" || state.mode === "reset") showNotice("error", error.message || "Something went wrong.");
+    else if (error.status === 429) showNotice("error", "Too many failed attempts. Wait a few minutes and try again.");
     else if (error.status === 409) showNotice("error", "That email is already registered.");
     else if (error.status === 401) showNotice("error", "The email or password is incorrect.");
     else if (error.status === 403) showNotice("error", error.message || "This account cannot sign in.");
@@ -183,6 +231,16 @@ $("authForm").addEventListener("submit", async (event) => {
   }
 });
 
-setMode("login");
+// A reset link puts its token in the URL fragment, which is never sent to the
+// server. Read it once and strip it from the address bar and history.
+function takeResetToken() {
+  const match = location.hash.match(/^#reset=([A-Za-z0-9._-]+)$/);
+  if (!match) return false;
+  state.resetToken = match[1];
+  history.replaceState(null, "", location.pathname);
+  return true;
+}
+
+setMode(takeResetToken() ? "reset" : "login");
 loadHealth();
 showSsoNotice();

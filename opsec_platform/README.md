@@ -128,18 +128,26 @@ This is a working reference implementation, not a hardened production deployment
   are both checked). There's still no fuller roles/permissions model (e.g. no way to demote
   an admin, no per-resource permissions) — this covers the one gap that was previously wide
   open, not a complete authorization system.
-- **No database migrations.** Schema changes (like the `is_org_admin` column just added)
-  apply automatically to a fresh database via `init_db()`, but won't alter an already-
-  existing `platform.db` with data in it — this reference implementation uses
-  SQLAlchemy's `create_all()`, not Alembic. Add Alembic before this holds real data across
-  schema changes.
-- **Login rate limiting — fixed since the last pass.** `/auth/login` now blocks after
-  `PLATFORM_LOGIN_RATE_LIMIT_ATTEMPTS` (default 5) failures within
-  `PLATFORM_LOGIN_RATE_LIMIT_WINDOW_MINUTES` (default 15), counted from the activity log
-  itself. This is a basic per-account/per-email limiter, not a distributed or IP-based one
-  — a determined attacker rotating through many target emails from one IP isn't slowed down
-  by this alone. Consider adding an IP-based limiter (e.g. at a reverse-proxy layer) as a
-  second, complementary layer before exposing this publicly.
+- **Database migrations (Alembic).** The app applies migrations itself at startup
+  (`opsec_platform/migrations/`). An empty database is built from the baseline; a database
+  created before Alembic (production's, for example) is repaired to the baseline shape,
+  stamped, then upgraded, without losing data. Postgres workers serialise on an advisory
+  lock. To change the schema: edit `models.py`, then
+  `PLATFORM_DATABASE_URL=sqlite:////tmp/dev.db alembic upgrade head && alembic revision --autogenerate -m "what changed"`,
+  review the generated file, and commit it. CI runs `alembic check` and fails if models and
+  migrations disagree.
+- **Login rate limiting.** `/auth/login` blocks after `PLATFORM_LOGIN_RATE_LIMIT_ATTEMPTS`
+  (default 5) failures per account and `PLATFORM_LOGIN_IP_RATE_LIMIT_ATTEMPTS` (default 20)
+  per client IP within the window, counted from the activity log.
+- **Client IP behind Vercel: set `PLATFORM_PROXY_SECRET`.** The per-IP limit uses Vercel's
+  `x-vercel-forwarded-for`. The Render origin is publicly reachable, so without a shared
+  secret anyone can call it directly with a forged header and rotate their apparent IP. Set
+  the same random value (≥32 bytes) as `PLATFORM_PROXY_SECRET` on **both** Vercel (Production
+  and Preview) and Render: `middleware.js` adds it as `x-opsec-proxy-secret`, and the API then
+  trusts the forwarded address only when it matches. `/health` reports `proxy_verified: true`
+  for a request that came through the proxy correctly. Once that shows `true`, set
+  `PLATFORM_REQUIRE_PROXY_SECRET=true` on Render to refuse every request that bypasses Vercel
+  (`/health/live` stays open).
 - **`PLATFORM_JWT_SECRET` must be a real secret, generated once, and kept out of source
   control.** Anyone with this value can forge valid sessions for any user.
 - **SSO in HTTPS deployments requires two more variables.** `PLATFORM_OAUTH_SESSION_SECRET`
@@ -154,6 +162,19 @@ This is a working reference implementation, not a hardened production deployment
   don't flip it to `false` anywhere except local `http://localhost` development.
 - **SQLite is fine for evaluation, not for concurrent production load.** Point
   `PLATFORM_DATABASE_URL` at Postgres for anything beyond a small pilot.
+
+## Passwords: change, forgot, reset
+
+- **Account → Change password** (`POST /auth/password`) needs the current password and signs
+  out every other session. An account that only uses SSO can **set** a first password there,
+  within 15 minutes of signing in.
+- **Forgot password?** appears on the sign-in page only when SMTP is configured
+  (`PLATFORM_SMTP_HOST` and friends, the same settings email alerts use; `/health` reports
+  `features.password_reset`). The reply never says whether an account exists. The link
+  (`/login#reset=…`, valid 30 minutes, single use) keeps the token in the URL fragment so it
+  never reaches Vercel or Render logs. Resetting signs out every session.
+- Requests are limited per IP and per account; tokens use their own audience and can never
+  be used as a session (or the reverse).
 
 ## Web workspace
 
@@ -219,8 +240,10 @@ The CLI itself remains fully local-first and does not talk to this platform by d
 that's a deliberate, unchanged design decision, not an oversight. The one exception is
 explicit and opt-in: `opsec-scan --report-activity <platform-url> --report-activity-token
 <token>` POSTs a scan summary (counts by risk label, target label) to `/activity/report-scan`
-after a scan completes. A token is obtained by logging into the platform separately (e.g.
-via curl against `/auth/login`) — the CLI doesn't implement an interactive login flow.
+after a scan completes. Get a token with
+`eval "$(opsec-scan --platform-login https://platform.example.com)"` (prompts for email and a
+hidden password, creates a CLI access token, exports `OPSEC_PLATFORM_TOKEN`), or create one on
+the workspace's **CLI access tokens** page (the only way for SSO-only accounts).
 
 ```bash
 opsec-scan --repo . \
@@ -241,7 +264,8 @@ opsec-scan --repo . --report-activity https://platform.example.com --upload-find
 
 If the platform is unreachable, the token is invalid, or the token is missing entirely, the
 CLI prints a warning and continues — reporting activity never blocks or fails the actual
-local scan. Verified end-to-end against a real running platform server: a real scan's
+local scan. Add `--fail-on-report-error` to make CI fail (exit code 3, after every local report
+is written) in that case. Verified end-to-end against a real running platform server: a real scan's
 findings showed up correctly in the platform's activity log after being reported over a
 real network call.
 

@@ -37,3 +37,16 @@ jobs:
           done
           echo "::error title=Production not ready::$URL did not return 200 after 5 attempts. If the database is down, check whether the Supabase project is paused."
           exit 1
+
+      - name: Run due monitoring scans
+        # The free instance is only awake around this ping, so trigger the
+        # scheduler explicitly (audit P5). Skipped until the repository
+        # secret PLATFORM_SCHEDULER_TOKEN exists (same value as on Render).
+        env:
+          TOKEN: ${{ secrets.PLATFORM_SCHEDULER_TOKEN }}
+          RUN_URL: https://opsec-scanner-seven.vercel.app/internal/scheduler/run
+        run: |
+          if [ -z "$TOKEN" ]; then echo "PLATFORM_SCHEDULER_TOKEN not set; skipping."; exit 0; fi
+          code=$(curl -sS -o run.json -w '%{http_code}' --max-time 60 -X POST -H "Authorization: Bearer $TOKEN" "$RUN_URL" || echo 000)
+          echo "HTTP $code $(cat run.json 2>/dev/null)"
+          [ "$code" = 200 ] || { echo "::error title=Scheduler trigger failed::HTTP $code"; exit 1; }

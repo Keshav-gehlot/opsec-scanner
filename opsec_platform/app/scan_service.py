@@ -166,7 +166,7 @@ def rules_status() -> dict:
         from opsec_scanner.analysis.patterns import DEFAULT_RULES_PATH, load_rules
 
         if not DEFAULT_RULES_PATH.exists():
-            return {"ok": False, "rules": 0, "detail": "rules/patterns.yaml not found next to the package"}
+            return {"ok": False, "rules": 0, "detail": "opsec_scanner/rules/patterns.yaml not found (set OPSEC_RULES_DIR or reinstall)"}
         return {"ok": True, "rules": len(load_rules())}
     except BaseException as exc:  # load_rules exits on corrupt YAML
         return {"ok": False, "rules": 0, "detail": type(exc).__name__}
@@ -185,16 +185,26 @@ def rule_meta() -> dict:
         from opsec_scanner.analysis.patterns import load_rules
         from opsec_platform.app.osint.collectors import DIRECT_RULES
 
+        from opsec_scanner.analysis.patterns import CATEGORY_REMEDIATION
+
         meta = {r.id: {"category": r.category, "mitre": r.mitre, "description": r.description,
-                       "base_severity": r.base_severity} for r in load_rules()}
+                       "base_severity": r.base_severity,
+                       "remediation": r.remediation or CATEGORY_REMEDIATION.get(r.category)} for r in load_rules()}
         for rid, (category, severity, mitre, description) in DIRECT_RULES.items():
-            meta[rid] = {"category": category, "mitre": mitre, "description": description, "base_severity": severity}
+            meta[rid] = {"category": category, "mitre": mitre, "description": description, "base_severity": severity,
+                         "remediation": CATEGORY_REMEDIATION.get(category)}
         _RULE_META = meta
     return _RULE_META
 
 
 def mitre_for(rule_id: str) -> str | None:
     return rule_meta().get(rule_id, {}).get("mitre")
+
+
+def remediation_for(rule_id: str, category: str | None = None) -> str | None:
+    from opsec_scanner.analysis.patterns import CATEGORY_REMEDIATION
+
+    return rule_meta().get(rule_id, {}).get("remediation") or CATEGORY_REMEDIATION.get(category or "")
 
 
 def analyze(raw_findings, profile_data: dict, public: bool = False, extra_matches=None):

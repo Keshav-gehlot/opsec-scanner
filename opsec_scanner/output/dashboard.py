@@ -102,6 +102,11 @@ def _entry_html(index: int, s: ScoredFinding, mode: str) -> str:
         else ""
     )
 
+    from opsec_scanner.analysis.patterns import remediation_for
+
+    fix = remediation_for(s.match.rule_id, s.match.category)
+    fix_html = f'<p class="entry-note entry-fix"><strong>How to fix:</strong> {_esc(fix)}</p>' if fix else ""
+
     return f"""
     <article class="entry" id="entry-{index:03d}">
       <div class="entry-number">{index:03d}</div>
@@ -124,6 +129,7 @@ def _entry_html(index: int, s: ScoredFinding, mode: str) -> str:
         </div>
 
         <p class="entry-note">{reason}</p>
+        {fix_html}
       </div>
     </article>
     """

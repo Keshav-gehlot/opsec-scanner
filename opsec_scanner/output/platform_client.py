@@ -171,3 +171,63 @@ def upload_findings(
     if response.status_code >= 400:
         raise ActivityReportError(f"Platform returned {response.status_code}: {response.text[:300]}")
     return response.json()
+
+
+def session_token_from_set_cookie(set_cookie: str, cookie_name: str = "opsec_session") -> str | None:
+    """Pull the session cookie's value out of a Set-Cookie header."""
+    marker = cookie_name + "="
+    if marker not in set_cookie:
+        return None
+    return set_cookie.split(marker, 1)[1].split(";", 1)[0] or None
+
+
+def create_cli_token(platform_url: str, email: str, password: str, token_name: str,
+                     expires_in_days: int = 90, http_client=None) -> dict:
+    """Sign in with email + password, mint a CLI access token (opsec_pat_...),
+    then sign the temporary browser session out again.
+
+    The access token is what --report-activity / --upload-findings should
+    use: it is scoped to scan uploads and activity reports, expires, and can
+    be revoked from the workspace, whereas a session token can do anything
+    the account can. Returns the /auth/tokens response ({"token", ...}).
+    """
+    _validate_platform_url(platform_url)
+    try:
+        import httpx
+    except ImportError as e:
+        raise ActivityReportError("Signing in to the platform requires httpx: pip install httpx.") from e
+
+    owns_client = http_client is None
+    client = http_client or httpx.Client(base_url=platform_url, timeout=30.0)
+    try:
+        try:
+            login = client.post("/auth/login", json={"email": email, "password": password})
+        except Exception as e:
+            raise ActivityReportError(f"Could not reach the platform at {platform_url}: {e}") from e
+        if login.status_code == 401:
+            raise ActivityReportError(
+                "Email or password is incorrect. Accounts that only use Google/GitHub/Microsoft/Apple "
+                "sign-in have no password: create a token in the web workspace (CLI access tokens) instead."
+            )
+        if login.status_code == 429:
+            raise ActivityReportError("Too many failed sign-ins. Wait a few minutes and try again.")
+        if login.status_code >= 400:
+            raise ActivityReportError(f"Sign-in failed ({login.status_code}): {login.text[:200]}")
+
+        session = session_token_from_set_cookie(login.headers.get("set-cookie", ""))
+        if not session:
+            raise ActivityReportError("Platform did not return a session after sign-in.")
+        auth = {"Authorization": f"Bearer {session}"}
+        try:
+            created = client.post("/auth/tokens", json={"name": token_name, "expires_in_days": expires_in_days}, headers=auth)
+        finally:
+            try:
+                client.post("/auth/logout", headers=auth)
+            except Exception:
+                pass  # the session expires on its own; never mask the real outcome
+        if created.status_code >= 400:
+            raise ActivityReportError(f"Could not create an access token ({created.status_code}): {created.text[:200]}")
+        return created.json()
+    finally:
+        if owns_client:
+            client.close()

@@ -27,5 +27,5 @@ reveal_secrets: false
 profile: target_profile.yaml
 
 # Same as --rules / --allowlist, if you maintain org-specific copies
-# rules: rules/patterns.yaml
-# allowlist: rules/allowlist.yaml
+# rules: my-rules/patterns.yaml   # default: the bundled opsec_scanner/rules/
+# allowlist: my-rules/allowlist.yaml

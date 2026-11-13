@@ -195,6 +195,7 @@ def finding_dict(f: Finding, scan: Scan | None = None) -> dict:
         "identity_confidence": f.identity_confidence, "identity_reason": f.identity_reason,
         "entropy_score": f.entropy_score, "base_severity": f.base_severity,
         "mitre": meta.get("mitre"), "description": meta.get("description"),
+        "remediation": meta.get("remediation") or svc.remediation_for(f.rule_id, f.category),
         "target_label": scan.target_label if scan else None,
     }
 

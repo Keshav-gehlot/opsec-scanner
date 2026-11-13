@@ -93,7 +93,7 @@ def _user_columns(engine) -> set[str]:
 
 
 def ensure_schema_compat(engine) -> None:
-    """Bridge the legacy is_org_admin column until Alembic owns schema changes."""
+    """Legacy is_org_admin column bridge, used only to repair pre-Alembic databases."""
     inspector = inspect(engine)
     if "users" not in inspector.get_table_names():
         return
@@ -189,8 +189,65 @@ def ensure_column(engine, table: str, column: str, ddl: str) -> None:
             raise
 
 
-def init_db(engine) -> None:
+BASELINE_REVISION = "0001_baseline"
+_MIGRATION_LOCK_KEY = 0x0005EC  # pg_advisory_lock key shared by every worker
+
+
+def _alembic_config(connection):
+    from alembic.config import Config
+
+    cfg = Config()
+    cfg.set_main_option("script_location", "opsec_platform:migrations")
+    cfg.attributes["connection"] = connection
+    return cfg
+
+
+def _repair_pre_alembic_schema(engine) -> None:
+    """Bring a database created by the old create_all() path up to the
+    baseline shape (missing tables/columns only), so it can be stamped."""
     Base.metadata.create_all(bind=engine)
     ensure_schema_compat(engine)
     ensure_column(engine, "findings", "status", "VARCHAR NOT NULL DEFAULT 'open'")
+
+
+def run_migrations(engine) -> str:
+    """Apply Alembic migrations. Returns "fresh", "stamped" or "upgraded".
+
+    - Empty database: every migration runs from the baseline.
+    - Database from before Alembic (tables, no alembic_version): repaired to
+      the baseline shape, stamped at the baseline, then upgraded. Data stays.
+    - Already managed: upgraded to head (a no-op when current).
+    Postgres serialises concurrent workers with an advisory lock.
+    """
+    from alembic import command
+
+    is_pg = engine.dialect.name == "postgresql"
+    with engine.connect() as connection:
+        if is_pg:
+            connection.execute(text("SELECT pg_advisory_lock(:k)"), {"k": _MIGRATION_LOCK_KEY})
+            connection.commit()
+        try:
+            tables = set(inspect(connection).get_table_names())
+            connection.commit()  # end the inspection transaction before other work
+            cfg = _alembic_config(connection)
+            if "alembic_version" not in tables and "users" in tables:
+                _repair_pre_alembic_schema(engine)
+                command.stamp(cfg, BASELINE_REVISION)
+                command.upgrade(cfg, "head")
+                outcome = "stamped"
+            else:
+                outcome = "fresh" if "alembic_version" not in tables else "upgraded"
+                command.upgrade(cfg, "head")
+            connection.commit()
+        finally:
+            if is_pg:
+                connection.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": _MIGRATION_LOCK_KEY})
+                connection.commit()
+    return outcome
+
+
+def init_db(engine) -> None:
+    outcome = run_migrations(engine)
+    if outcome == "stamped":
+        logger.info("Existing database adopted by Alembic at revision %s.", BASELINE_REVISION)
     backfill_user_identities(engine)

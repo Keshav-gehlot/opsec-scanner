@@ -95,7 +95,7 @@ def _target_status_html(target_label: str, snapshots: list[dict]) -> str:
     """
 
 
-def render_ops_center(history_dir: Path | str, output_path: str | Path, include_web_fonts: bool = True) -> None:
+def render_ops_center(history_dir: Path | str | None, output_path: str | Path, include_web_fonts: bool = True) -> None:
     """
     include_web_fonts: True by default since this HTML file is normally
     opened in a real browser with internet access. Set False if this

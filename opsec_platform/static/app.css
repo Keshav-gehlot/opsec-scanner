@@ -24,3 +24,4 @@
   .input{font-size:1rem}
 }
 @media(max-width:560px){.status{display:inline-flex;font-size:.75rem;padding:4px 8px}.brand-copy span{display:none}}
+.forgot-row{margin:0;text-align:right}

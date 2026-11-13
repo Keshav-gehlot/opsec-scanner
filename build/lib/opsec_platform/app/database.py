@@ -1,0 +1,253 @@
+from __future__ import annotations
+
+import logging
+import os
+
+from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import ArgumentError
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from opsec_platform.app.config import get_settings
+from opsec_platform.app.models import Base
+
+logger = logging.getLogger(__name__)
+
+_ALLOWED_DRIVERS = {"sqlite", "postgresql", "postgresql+psycopg"}
+
+
+def normalize_database_url(raw: str | None) -> str:
+    url = (raw or "").strip().strip("\"'").strip()
+    if not url:
+        raise RuntimeError("Database URL is empty (check PLATFORM_DATABASE_URL or DATABASE_URL).")
+    if url.startswith("postgres://"):
+        url = "postgresql://" + url[len("postgres://"):]
+    try:
+        parsed = make_url(url)
+    except ArgumentError:
+        raise RuntimeError(
+            "Database URL is not a valid SQLAlchemy URL. Check for stray quotes/"
+            "whitespace, leftover placeholders, and URL-encode special characters "
+            "in the password (@ -> %40, # -> %23, / -> %2F)."
+        ) from None
+    if parsed.drivername not in _ALLOWED_DRIVERS:
+        raise RuntimeError(
+            f"Unsupported database URL scheme '{parsed.drivername}'. "
+            "Use postgresql://, postgresql+psycopg://, or sqlite://."
+        )
+    return url
+
+
+def make_engine(database_url: str | None = None):
+    if database_url is not None:
+        url = normalize_database_url(database_url)
+    else:
+        settings = get_settings()
+        explicit = os.environ.get("PLATFORM_DATABASE_URL", "").strip()
+        managed = os.environ.get("DATABASE_URL", "").strip()
+
+        if explicit:
+            try:
+                url = normalize_database_url(explicit)
+            except RuntimeError as exc:
+                # Render can inject its managed DATABASE_URL separately. If a
+                # stale PLATFORM_DATABASE_URL is malformed, prefer the managed
+                # database rather than bringing the whole service down.
+                if not managed:
+                    # Name the variable (never its value) so the deploy log
+                    # says which setting to fix.
+                    raise RuntimeError(f"PLATFORM_DATABASE_URL is invalid: {exc}") from None
+                logger.warning("PLATFORM_DATABASE_URL is invalid; using managed DATABASE_URL instead.")
+                url = normalize_database_url(managed)
+        elif managed:
+            try:
+                url = normalize_database_url(managed)
+            except RuntimeError as exc:
+                raise RuntimeError(f"DATABASE_URL is invalid: {exc}") from None
+        elif settings.cookie_secure:
+            # HTTPS (production) deployment with no database configured: the
+            # local SQLite default would live on the host's ephemeral disk —
+            # an empty database that looks healthy and is wiped on restart.
+            raise RuntimeError(
+                "No database configured. Set DATABASE_URL (or PLATFORM_DATABASE_URL) "
+                "to the PostgreSQL connection string."
+            )
+        else:
+            url = normalize_database_url(settings.database_url)
+
+    if url.startswith("sqlite"):
+        connect_args = {"check_same_thread": False}
+        if ":memory:" in url:
+            return create_engine(url, connect_args=connect_args, poolclass=StaticPool)
+        return create_engine(url, connect_args=connect_args)
+    return create_engine(url, pool_pre_ping=True)
+
+
+def make_session_factory(engine):
+    return sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+def _user_columns(engine) -> set[str]:
+    return {column["name"] for column in inspect(engine).get_columns("users")}
+
+
+def ensure_schema_compat(engine) -> None:
+    """Legacy is_org_admin column bridge, used only to repair pre-Alembic databases."""
+    inspector = inspect(engine)
+    if "users" not in inspector.get_table_names():
+        return
+    if "is_org_admin" in _user_columns(engine):
+        return
+
+    false_literal = "FALSE" if engine.dialect.name == "postgresql" else "0"
+    try:
+        with engine.begin() as connection:
+            connection.execute(text(
+                f"ALTER TABLE users ADD COLUMN is_org_admin BOOLEAN NOT NULL DEFAULT {false_literal}"
+            ))
+    except Exception:
+        # Multiple workers can initialize simultaneously. If another worker
+        # already added the column, this worker can safely continue.
+        if "is_org_admin" not in _user_columns(engine):
+            raise
+
+
+def backfill_user_identities(engine) -> None:
+    """Move legacy single-provider SSO links into user_identities.
+
+    Before user_identities existed, an SSO sign-in that matched an existing
+    account by email overwrote users.auth_provider / provider_user_id. For a
+    password account that silently disabled password login (login required
+    auth_provider == "local"). For every user still carrying a provider
+    subject, record it as a linked identity; if the account also has a
+    password, restore auth_provider to "local" so both methods work.
+    Idempotent and safe for several workers starting at once.
+    """
+    import uuid
+    from datetime import datetime, timezone
+    from sqlalchemy.exc import IntegrityError
+    from opsec_platform.app.models import UserIdentity
+
+    inspector = inspect(engine)
+    if "users" not in inspector.get_table_names() or "user_identities" not in inspector.get_table_names():
+        return
+    # Read only the columns this repair needs, so it also runs against older
+    # users tables that predate unrelated columns.
+    needed = {"id", "email", "auth_provider", "provider_user_id", "hashed_password"}
+    if not needed <= _user_columns(engine):
+        return
+
+    identities = UserIdentity.__table__
+    with engine.connect() as connection:
+        legacy = connection.execute(text(
+            "SELECT id, email, auth_provider, provider_user_id, hashed_password FROM users "
+            "WHERE auth_provider <> 'local' AND provider_user_id IS NOT NULL"
+        )).mappings().all()
+
+    for row in legacy:
+        try:
+            with engine.begin() as connection:
+                exists = connection.execute(
+                    identities.select().where(
+                        identities.c.provider == row["auth_provider"],
+                        identities.c.provider_user_id == row["provider_user_id"],
+                    )
+                ).first()
+                if exists is None:
+                    connection.execute(identities.insert().values(
+                        id=str(uuid.uuid4()), user_id=row["id"], provider=row["auth_provider"],
+                        provider_user_id=row["provider_user_id"], email_at_link=row["email"],
+                        created_at=datetime.now(timezone.utc),
+                    ))
+                if row["hashed_password"]:
+                    connection.execute(
+                        text("UPDATE users SET auth_provider = 'local', provider_user_id = NULL WHERE id = :id"),
+                        {"id": row["id"]},
+                    )
+        except IntegrityError:
+            # Another worker backfilled the same identity first; it also
+            # applied (or will apply) the same users update.
+            continue
+    if legacy:
+        logger.info("Backfilled linked sign-in identities for %d legacy account(s).", len(legacy))
+
+
+def ensure_column(engine, table: str, column: str, ddl: str) -> None:
+    """Add a column to an existing table if it is missing (create_all never
+    alters tables). Safe when several workers start at once."""
+    inspector = inspect(engine)
+    if table not in inspector.get_table_names():
+        return
+    if column in {c["name"] for c in inspector.get_columns(table)}:
+        return
+    try:
+        with engine.begin() as connection:
+            connection.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
+    except Exception:
+        if column not in {c["name"] for c in inspect(engine).get_columns(table)}:
+            raise
+
+
+BASELINE_REVISION = "0001_baseline"
+_MIGRATION_LOCK_KEY = 0x0005EC  # pg_advisory_lock key shared by every worker
+
+
+def _alembic_config(connection):
+    from alembic.config import Config
+
+    cfg = Config()
+    cfg.set_main_option("script_location", "opsec_platform:migrations")
+    cfg.attributes["connection"] = connection
+    return cfg
+
+
+def _repair_pre_alembic_schema(engine) -> None:
+    """Bring a database created by the old create_all() path up to the
+    baseline shape (missing tables/columns only), so it can be stamped."""
+    Base.metadata.create_all(bind=engine)
+    ensure_schema_compat(engine)
+    ensure_column(engine, "findings", "status", "VARCHAR NOT NULL DEFAULT 'open'")
+
+
+def run_migrations(engine) -> str:
+    """Apply Alembic migrations. Returns "fresh", "stamped" or "upgraded".
+
+    - Empty database: every migration runs from the baseline.
+    - Database from before Alembic (tables, no alembic_version): repaired to
+      the baseline shape, stamped at the baseline, then upgraded. Data stays.
+    - Already managed: upgraded to head (a no-op when current).
+    Postgres serialises concurrent workers with an advisory lock.
+    """
+    from alembic import command
+
+    is_pg = engine.dialect.name == "postgresql"
+    with engine.connect() as connection:
+        if is_pg:
+            connection.execute(text("SELECT pg_advisory_lock(:k)"), {"k": _MIGRATION_LOCK_KEY})
+            connection.commit()
+        try:
+            tables = set(inspect(connection).get_table_names())
+            connection.commit()  # end the inspection transaction before other work
+            cfg = _alembic_config(connection)
+            if "alembic_version" not in tables and "users" in tables:
+                _repair_pre_alembic_schema(engine)
+                command.stamp(cfg, BASELINE_REVISION)
+                command.upgrade(cfg, "head")
+                outcome = "stamped"
+            else:
+                outcome = "fresh" if "alembic_version" not in tables else "upgraded"
+                command.upgrade(cfg, "head")
+            connection.commit()
+        finally:
+            if is_pg:
+                connection.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": _MIGRATION_LOCK_KEY})
+                connection.commit()
+    return outcome
+
+
+def init_db(engine) -> None:
+    outcome = run_migrations(engine)
+    if outcome == "stamped":
+        logger.info("Existing database adopted by Alembic at revision %s.", BASELINE_REVISION)
+    backfill_user_identities(engine)

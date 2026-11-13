@@ -108,3 +108,13 @@ def test_corrupt_allowlist_degrades_gracefully_scan_still_runs(tmp_path):
     allowlist = load_allowlist(allowlist_file)
     assert allowlist.ignore_patterns == []
     assert allowlist.ignore_paths == []
+
+
+def test_every_bundled_rule_has_remediation():
+    from opsec_scanner.analysis.patterns import load_rules, remediation_for
+
+    rules = load_rules()
+    assert all(r.remediation for r in rules), [r.id for r in rules if not r.remediation]
+    assert "IAM" in remediation_for("aws_access_key")
+    assert remediation_for("not_a_rule", "credentials")  # category fallback
+    assert remediation_for("not_a_rule") is None

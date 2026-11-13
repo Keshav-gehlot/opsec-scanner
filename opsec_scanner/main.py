@@ -37,7 +37,7 @@ from opsec_scanner.output.pdf_export import export_pdf
 from opsec_scanner.output.sarif_export import export_sarif
 from opsec_scanner.output.history_store import save_snapshot
 from opsec_scanner.output.ops_center import render_ops_center
-from opsec_scanner.output.platform_client import report_scan_activity, upload_findings, ActivityReportError
+from opsec_scanner.output.platform_client import report_scan_activity, upload_findings, create_cli_token, ActivityReportError
 
 console = Console()
 
@@ -111,7 +111,59 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help="Bearer token for --report-activity. Falls back to the OPSEC_PLATFORM_TOKEN environment variable if not given.",
     )
+    parser.add_argument(
+        "--verify-secrets",
+        action="store_true",
+        help="Ask each found credential's own issuer (GitHub, Slack, Stripe, OpenAI, Anthropic, SendGrid, npm, "
+             "Telegram) whether it still works, via a read-only identity call. Live credentials become CRITICAL. "
+             "Values go only to their issuer over HTTPS and are never printed. Off by default.",
+    )
+    parser.add_argument(
+        "--fail-on-report-error",
+        action="store_true",
+        help="With --report-activity: exit with status 3 (after writing every local report) if the scan could not be "
+             "reported or uploaded, or no token was found. Default: warn and continue.",
+    )
+    parser.add_argument(
+        "--platform-login",
+        type=str,
+        default=None,
+        metavar="URL",
+        help="Sign in to the platform at URL (email + hidden password prompt), create a CLI access token and print it "
+             "as an OPSEC_PLATFORM_TOKEN export line, then exit. Needs no scan arguments.",
+    )
+    parser.add_argument("--platform-email", type=str, default=None, help="Email for --platform-login (prompted if omitted).")
+    parser.add_argument(
+        "--token-days", type=int, default=90, choices=[30, 90, 180, 365],
+        help="Lifetime of the token created by --platform-login (default: 90).",
+    )
     return parser
+
+
+def _platform_login(args) -> int:
+    import getpass
+    import socket
+
+    # Prompts and status go to stderr and only the export line to stdout, so
+    # `eval "$(opsec-scan --platform-login URL)"` works.
+    err = Console(stderr=True)
+    email = args.platform_email
+    if not email:
+        sys.stderr.write("Platform email: ")
+        sys.stderr.flush()
+        email = sys.stdin.readline()
+    email = email.strip()
+    password = os.environ.get("OPSEC_PLATFORM_PASSWORD") or getpass.getpass("Password (not shown): ")
+    name = f"cli {socket.gethostname()}"[:80]
+    try:
+        created = create_cli_token(args.platform_login, email, password, name, expires_in_days=args.token_days)
+    except ActivityReportError as e:
+        err.print(f"[red]Sign-in failed:[/red] {e}")
+        return 1
+    err.print(f"[green]Created access token[/green] '{name}' (expires in {args.token_days} days; revoke it from "
+              "the workspace's CLI access tokens page). Shown once — store it as a secret:")
+    print(f"export OPSEC_PLATFORM_TOKEN={created['token']}")
+    return 0
 
 
 def _resolve_config_defaults(argv: list[str]) -> dict:
@@ -137,6 +189,9 @@ def cli() -> None:
     if args.init_profile:
         write_template_profile()
         sys.exit(0)
+
+    if args.platform_login:
+        sys.exit(_platform_login(args))
 
     if args.ops_center_output:
         history_dir = args.history_dir or None
@@ -257,14 +312,31 @@ def cli() -> None:
     scored = deduplicate_findings(scored)
     console.print(f"[bold]{len(scored)}[/bold] unique findings after deduplication")
 
+    if args.verify_secrets:
+        from opsec_scanner.analysis.verify import verify_findings
+
+        counts = verify_findings(scored)
+        checked = counts["active"] + counts["inactive"] + counts["unknown"]
+        if checked or counts["skipped"]:
+            console.print(
+                f"[bold]Secret verification:[/bold] {counts['active']} live, {counts['inactive']} rejected, "
+                f"{counts['unknown']} unknown" + (f", {counts['skipped']} over the per-run limit" if counts["skipped"] else "")
+            )
+            if counts["active"]:
+                console.print("[bold red]Live credentials found — revoke them now; see 'How to fix' in the report.[/bold red]")
+        else:
+            console.print("[dim]Secret verification: no verifiable credential types found.[/dim]")
+
     if args.save_history:
         label = args.target_label or "+".join(args.repo + args.media_dir) or "unlabeled-target"
         snapshot_path = save_snapshot(scored, label, history_dir=args.history_dir)
         console.print(f"[green]Scan snapshot saved to history:[/green] {snapshot_path}")
 
+    report_failed = False
     if args.report_activity:
         token = args.report_activity_token or os.environ.get("OPSEC_PLATFORM_TOKEN")
         if not token:
+            report_failed = True
             console.print(
                 "[yellow]Warning:[/yellow] --report-activity was given but no token found "
                 "(pass --report-activity-token or set OPSEC_PLATFORM_TOKEN). Skipping activity report — "
@@ -279,6 +351,7 @@ def cli() -> None:
                 # Never let a reporting failure take down the actual scan —
                 # the local reports are the CLI's real job and must still
                 # get written even if the platform is unreachable.
+                report_failed = True
                 console.print(f"[yellow]Warning:[/yellow] Could not report activity to platform: {e}")
             if args.upload_findings:
                 try:
@@ -287,6 +360,7 @@ def cli() -> None:
                         f"[green]Redacted findings uploaded:[/green] {args.report_activity.rstrip('/')}/dashboard#/scan/{uploaded.get('id')}"
                     )
                 except ActivityReportError as e:
+                    report_failed = True
                     console.print(f"[yellow]Warning:[/yellow] Could not upload findings to platform: {e}")
     elif args.upload_findings:
         console.print("[yellow]Warning:[/yellow] --upload-findings needs --report-activity <platform URL>. Skipping upload.")
@@ -318,6 +392,10 @@ def cli() -> None:
         if blocking:
             console.print(f"[bold red]FAILING:[/bold red] {len(blocking)} finding(s) at or above {args.fail_on}")
             sys.exit(1)
+
+    if report_failed and args.fail_on_report_error:
+        console.print("[bold red]FAILING:[/bold red] the scan could not be reported to the platform (--fail-on-report-error).")
+        sys.exit(3)
 
     sys.exit(0)
 

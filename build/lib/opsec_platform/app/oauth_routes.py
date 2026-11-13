@@ -1,0 +1,265 @@
+"""
+OAuth/SSO routes: /auth/oauth/{provider}/login redirects to the
+provider's consent screen; /auth/oauth/{provider}/callback handles the
+return trip, finds-or-creates a User, and issues a session — the same
+session mechanism as local login (same Session row + JWT shape), so
+downstream code never needs to care whether someone logged in with a
+password or with Google.
+"""
+
+from __future__ import annotations
+
+import logging
+import uuid
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, HTTPException, Request, Response, status
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session as DBSession
+
+from opsec_platform.app.activity import log_activity, EventType
+from opsec_platform.app.client_ip import client_meta
+from opsec_platform.app.config import get_settings
+from opsec_platform.app.dependencies import SESSION_COOKIE_NAME
+from opsec_platform.app.identities import PENDING_LINK_KEY, find_user_by_identity
+from opsec_platform.app.models import User, UserIdentity, Session as SessionModel
+from opsec_platform.app.oauth_providers import build_oauth_registry
+
+router = APIRouter(prefix="/auth/oauth", tags=["oauth"])
+logger = logging.getLogger(__name__)
+
+SUPPORTED_PROVIDERS = {"google", "github", "microsoft", "apple"}
+
+
+def _client_meta(request: Request) -> tuple[str, str]:
+    return client_meta(request)
+
+
+def _require_configured_provider(provider: str):
+    if provider not in SUPPORTED_PROVIDERS:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Unknown provider '{provider}'.")
+
+    settings = get_settings()
+    cfg = settings.oauth_providers()[provider]
+    if not cfg.is_configured:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail=(
+                f"{provider.capitalize()} sign-in is not configured on this server. "
+                f"Set {provider.upper()}_CLIENT_ID and {provider.upper()}_CLIENT_SECRET "
+                f"— see opsec_platform/README.md for how to register an app with {provider.capitalize()} "
+                f"and obtain these values."
+            ),
+        )
+    if settings.oauth_config_problems():
+        # Details (variable names only) are logged at startup; don't
+        # describe server configuration to anonymous callers.
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Single sign-on is temporarily unavailable on this server.",
+        )
+    return settings
+
+
+def _oauth_redirect_uri(settings, request: Request, provider: str) -> str:
+    """Callback URL sent to the provider.
+
+    Never derived from client-controllable Host / X-Forwarded-* headers in
+    an HTTPS deployment: PLATFORM_BASE_URL is mandatory there (enforced by
+    Settings.oauth_config_problems). Plain-http local development falls
+    back to the URL the request actually arrived on.
+    """
+    if settings.base_url_explicit:
+        origin = settings.base_url
+    else:
+        origin = str(request.base_url)
+    return f"{origin.rstrip('/')}/auth/oauth/{provider}/callback"
+
+
+@router.get("/{provider}/login")
+async def oauth_login(provider: str, request: Request):
+    settings = _require_configured_provider(provider)
+    oauth = build_oauth_registry(settings)
+    client = oauth.create_client(provider)
+    redirect_uri = _oauth_redirect_uri(settings, request, provider)
+    try:
+        return await client.authorize_redirect(request, redirect_uri)
+    except Exception as e:
+        logger.exception("OAuth redirect initialization failed for provider=%s", provider)
+        # OIDC providers (google/microsoft/apple) fetch a live discovery
+        # document on first use — a network hiccup or provider outage
+        # here would otherwise surface as a raw unhandled exception to
+        # whoever clicked "sign in with X," rather than a clean error.
+        # (GitHub doesn't hit this path — it uses static URLs, no
+        # discovery fetch — which is how this gap was found: verifying
+        # the redirect worked for GitHub but not for Google surfaced the
+        # difference.)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Could not reach {provider.capitalize()} to start sign-in. Try again shortly.",
+        ) from e
+
+
+async def _fetch_provider_identity(provider: str, oauth, request: Request) -> dict:
+    """Returns a normalized {provider_user_id, email, display_name} dict
+    regardless of which provider it came from — the three providers have
+    three different shapes of "who is this," normalized here once so
+    the callback route below doesn't need provider-specific branching."""
+    client = oauth.create_client(provider)
+    token = await client.authorize_access_token(request)
+
+    if provider in ("google", "microsoft", "apple"):
+        # All three are OIDC-compliant — identity comes from the verified id_token.
+        userinfo = token.get("userinfo") or await client.userinfo(token=token)
+        return {
+            "provider_user_id": userinfo.get("sub"),
+            "email": userinfo.get("email"),
+            "email_verified": userinfo.get("email_verified"),
+            "display_name": userinfo.get("name") or userinfo.get("email"),
+        }
+    elif provider == "github":
+        # GitHub isn't OIDC — fetch the user profile via REST, and emails
+        # separately since a GitHub account's primary email can be
+        # private and absent from /user.
+        resp = await client.get("user", token=token)
+        profile = resp.json()
+        emails_resp = await client.get("user/emails", token=token)
+        emails = emails_resp.json()
+        verified_primary = next((e.get("email") for e in emails if e.get("primary") and e.get("verified")), None)
+        verified_any = next((e.get("email") for e in emails if e.get("verified")), None)
+        email = verified_primary or verified_any
+        return {
+            "provider_user_id": str(profile.get("id")),
+            "email": email,
+            "email_verified": bool(email),
+            "display_name": profile.get("name") or profile.get("login"),
+        }
+    raise ValueError(f"unhandled provider: {provider}")  # unreachable given SUPPORTED_PROVIDERS gate above
+
+
+@router.api_route("/{provider}/callback", methods=["GET", "POST"])
+async def oauth_callback(request: Request):
+    provider = request.path_params["provider"]
+    settings = _require_configured_provider(provider)
+    oauth = build_oauth_registry(settings)
+
+    # Use an explicit DB session for the OAuth callback so GET and POST
+    # callbacks share the same transaction lifecycle.
+    from opsec_platform.app.dependencies import _SessionLocal, configure_db
+    if _SessionLocal is None:
+        configure_db()
+    db: DBSession = _SessionLocal()
+
+    ip, ua = _client_meta(request)
+    try:
+        identity = await _fetch_provider_identity(provider, oauth, request)
+    except Exception as e:
+        # Record only the exception type: provider error messages can echo
+        # back request/response fragments that don't belong in the audit log.
+        logger.warning("OAuth callback failed for provider=%s: %s", provider, type(e).__name__)
+        try:
+            log_activity(db, EventType.OAUTH_LOGIN_FAILED, ip_address=ip, user_agent=ua,
+                         detail=f"{provider}: token exchange failed ({type(e).__name__})")
+        finally:
+            db.close()
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"{provider.capitalize()} sign-in failed.")
+
+    def _reject(reason: str, message: str) -> HTTPException:
+        # Every early exit must release the DB session; previously these
+        # branches returned before the try/finally below and leaked it.
+        try:
+            log_activity(db, EventType.OAUTH_LOGIN_FAILED, ip_address=ip, user_agent=ua, detail=f"{provider}: {reason}")
+        finally:
+            db.close()
+        return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=message)
+
+    if not identity.get("provider_user_id"):
+        raise _reject(
+            "no provider user id returned",
+            f"{provider.capitalize()} did not provide a usable account identifier.",
+        )
+
+    if not identity.get("email"):
+        raise _reject(
+            "no email returned",
+            f"{provider.capitalize()} did not provide an email address for this account.",
+        )
+
+    # Only accept an identity whose provider explicitly verified the email:
+    # it decides whether a new account is created or a password-confirmed
+    # link to an existing account is offered.
+    if identity.get("email_verified") is not True:
+        raise _reject(
+            "email not verified",
+            f"{provider.capitalize()} did not provide a verified email address for this account.",
+        )
+
+    subject = str(identity["provider_user_id"])
+    email = str(identity["email"]).strip().lower()
+
+    try:
+        # 1. The provider's stable subject id is the identity key — never
+        #    the email address.
+        user = find_user_by_identity(db, provider, subject)
+
+        if user is None:
+            existing = db.query(User).filter(User.email == email).first()
+            if existing is not None:
+                # 2. An account with this email already exists but this
+                #    identity isn't linked to it. Do NOT link silently (and
+                #    never convert it to SSO-only, which used to disable its
+                #    password). Remember the verified identity in the signed,
+                #    10-minute OAuth session and require the account owner to
+                #    prove control with their password; /auth/login then
+                #    completes the link.
+                request.session[PENDING_LINK_KEY] = {
+                    "provider": provider, "provider_user_id": subject, "email": email,
+                }
+                log_activity(db, EventType.OAUTH_LINK_REQUIRED, user_id=existing.id,
+                             ip_address=ip, user_agent=ua, detail=provider)
+                return Response(status_code=302, headers={"Location": "/?sso=link_required"})
+
+            # 3. Brand-new person: create the account and its identity.
+            user = User(
+                email=email,
+                display_name=identity.get("display_name"),
+                auth_provider=provider,
+                provider_user_id=subject,
+            )
+            db.add(user)
+            db.flush()
+            db.add(UserIdentity(user_id=user.id, provider=provider, provider_user_id=subject, email_at_link=email))
+            try:
+                db.commit()
+            except IntegrityError:
+                # Concurrent first sign-in for the same person/email.
+                db.rollback()
+                user = find_user_by_identity(db, provider, subject)
+                if user is None:
+                    return Response(status_code=302, headers={"Location": "/?sso=failed"})
+            db.refresh(user)
+
+        if not user.is_active:
+            log_activity(db, EventType.OAUTH_LOGIN_FAILED, user_id=user.id, ip_address=ip, user_agent=ua, detail="account inactive")
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This account has been deactivated.")
+
+        from opsec_platform.app.security import create_session_token
+
+        session_id = str(uuid.uuid4())
+        token, expires_at = create_session_token(user.id, session_id, user.email)
+        db.add(SessionModel(id=session_id, user_id=user.id, expires_at=expires_at, ip_address=ip, user_agent=ua))
+        user.last_login_at = datetime.now(timezone.utc)
+        db.commit()
+
+        log_activity(db, EventType.OAUTH_LOGIN_SUCCESS, user_id=user.id, ip_address=ip, user_agent=ua, detail=provider)
+
+        # "/" renders the sign-in form; a signed-in user belongs on the dashboard.
+        response = Response(status_code=302, headers={"Location": "/dashboard"})
+        response.set_cookie(
+            SESSION_COOKIE_NAME, token,
+            httponly=True, samesite="lax", secure=settings.cookie_secure,
+            max_age=int((expires_at - datetime.now(timezone.utc)).total_seconds()),
+        )
+        return response
+    finally:
+        db.close()

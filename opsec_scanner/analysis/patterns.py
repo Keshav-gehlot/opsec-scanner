@@ -1,7 +1,7 @@
 """
 Regex pattern engine.
 
-Loads the rule set from rules/patterns.yaml and scans RawFinding.raw_text
+Loads the rule set from opsec_scanner/rules/patterns.yaml and scans RawFinding.raw_text
 against every rule. Rules flagged requires_entropy_check get a second
 pass through entropy.py before being accepted — this is what stops
 "password=hunter2"-style low-entropy placeholders from scoring as
@@ -18,23 +18,23 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import functools
+import os
+
 import yaml
 
 from opsec_scanner.analysis.entropy import calculate_entropy, is_high_entropy
 from opsec_scanner.models import RawFinding
 
 def _rules_dir() -> Path:
-    """The repo-level rules/ directory. Found next to the package for a
-    source checkout or editable install; a regular (non-editable) install
-    copies only the package into site-packages, so fall back to ./rules in
-    the working directory (how hosted deployments run from the checkout)."""
-    beside_package = Path(__file__).parent.parent.parent / "rules"
-    if (beside_package / "patterns.yaml").exists():
-        return beside_package
-    in_cwd = Path.cwd() / "rules"
-    if (in_cwd / "patterns.yaml").exists():
-        return in_cwd
-    return beside_package
+    """The bundled rule set (opsec_scanner/rules/, shipped as package data so
+    a regular `pip install` and the pre-commit hook work, not only editable
+    checkouts). OPSEC_RULES_DIR points at a replacement directory; individual
+    files can also be overridden with the config file's rules:/allowlist: keys."""
+    override = os.environ.get("OPSEC_RULES_DIR", "").strip()
+    if override:
+        return Path(override)
+    return Path(__file__).resolve().parent.parent / "rules"
 
 
 DEFAULT_RULES_PATH = _rules_dir() / "patterns.yaml"
@@ -80,6 +80,7 @@ class Rule:
     description: str
     validator: str | None = None        # name in VALIDATORS; match dropped if it fails
     mitre: str | None = None            # MITRE ATT&CK technique id, e.g. T1552.001
+    remediation: str | None = None      # how to fix / rotate, shown in every report
 
 
 @dataclass
@@ -198,6 +199,7 @@ def load_rules(path: Path | str | None = None) -> list[Rule]:
                     description=r.get("description", ""),
                     validator=_validator_name(r.get("validator")),
                     mitre=r.get("mitre"),
+                    remediation=r.get("remediation"),
                 )
             )
         except (re.error, KeyError, ValueError) as e:
@@ -247,13 +249,14 @@ def scan_findings(
             if rule.validator and not VALIDATORS[rule.validator](matched_text):
                 # Try the remaining matches in this text before giving up:
                 # the first number-shaped hit is often not the real one.
-                matched_text = next(
+                retry: str | None = next(
                     (other.group(0) for other in rule.pattern.finditer(text, m.end())
                      if VALIDATORS[rule.validator](other.group(0))),
                     None,
                 )
-                if matched_text is None:
+                if retry is None:
                     continue
+                matched_text = retry
 
             if allowlist.is_ignored(matched_text, finding.origin):
                 continue
@@ -285,3 +288,36 @@ def scan_findings(
             )
 
     return matches
+
+
+CATEGORY_REMEDIATION = {
+    "credentials": "Revoke or rotate the credential with the service that issued it (deleting it from git does not "
+                   "revoke it), load secrets from the environment or a secret manager, then purge it from history.",
+    "infrastructure": "Remove internal infrastructure details from public material and check whether the exposed "
+                      "host or service is reachable from the internet.",
+    "personal": "Remove the personal detail from public material and, for commit metadata, set a no-reply "
+                "address (git config user.email).",
+    "personal_id": "Remove the identity number from public material and tell the person it belongs to so they can "
+                   "watch for identity fraud.",
+    "financial": "Remove the account or card number from public material and tell the holder so the issuer can "
+                 "replace or monitor it.",
+    "system": "Use relative paths and generic machine names; local usernames and hostnames help target you.",
+    "misconfiguration": "Block public access to the file or path on the web server (or delete it), then rotate "
+                        "anything it contained.",
+    "email_security": "Publish SPF and an enforcing DMARC policy (p=quarantine or p=reject) so others cannot "
+                      "send mail as your domain.",
+    "code_exposure": "Remove the code or make the repository/gist private, and rotate any secret it contained.",
+}
+
+
+@functools.lru_cache(maxsize=1)
+def _remediation_map() -> dict[str, str]:
+    try:
+        return {r.id: r.remediation for r in load_rules() if r.remediation}
+    except SystemExit:
+        return {}
+
+
+def remediation_for(rule_id: str, category: str | None = None) -> str | None:
+    """Rule-specific fix from the rule set, else general advice for its category."""
+    return _remediation_map().get(rule_id) or CATEGORY_REMEDIATION.get(category or "")

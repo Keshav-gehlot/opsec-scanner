@@ -201,7 +201,7 @@ def summary_text(data: dict, title: str) -> str:
 def text_to_pdf(text: str) -> bytes:
     """Plain, dependency-light PDF (PyMuPDF is already a scanner dependency;
     WeasyPrint needs system libraries hosts often lack)."""
-    import fitz
+    import pymupdf as fitz  # the `fitz` import name is deprecated
 
     doc = fitz.open()
     # Base-14 Courier covers Windows-1252; replace anything outside it.

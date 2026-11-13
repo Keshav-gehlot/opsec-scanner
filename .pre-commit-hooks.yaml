@@ -1,0 +1,25 @@
+# Lets other repositories run the scanner through https://pre-commit.com:
+#
+#   # .pre-commit-config.yaml
+#   repos:
+#     - repo: https://github.com/Keshav-gehlot/opsec-scanner
+#       rev: <tag or commit>
+#       hooks:
+#         - id: opsec-scan
+#           # optional, e.g.: args: [--profile, target_profile.yaml, --fail-on, HIGH]
+#
+# The HTML report is written to .git/opsec-scan/pre-push-report.html.
+#
+#   pre-commit install --hook-type pre-push
+#
+# Needs a target_profile.yaml in the repository root (opsec-scan --init-profile)
+# unless you pass --profile in args. exiftool/tesseract are only needed for
+# --media-dir scans, which this hook does not run by default.
+- id: opsec-scan
+  name: OPSEC leak scan (commits being pushed)
+  description: Scans the commits being pushed for credentials, personal data and internal hosts; blocks on MEDIUM or above.
+  entry: opsec-scan-hook
+  language: python
+  pass_filenames: false
+  always_run: true
+  stages: [pre-push]

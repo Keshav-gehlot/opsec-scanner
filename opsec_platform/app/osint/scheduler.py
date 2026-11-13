@@ -67,9 +67,12 @@ def run_due(now: datetime | None = None, submit=None) -> list[str]:
 
 
 def _loop(interval: int) -> None:
+    # Free hosts sleep when idle and wake on a request; catch up shortly after
+    # every start instead of waiting a full interval (audit P5).
+    time.sleep(min(30, interval))
     while True:
-        time.sleep(interval)
         run_due()
+        time.sleep(interval)
 
 
 def start() -> bool:

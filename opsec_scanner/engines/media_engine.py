@@ -197,7 +197,7 @@ def scan_pdf_metadata(path: Path) -> Iterator[RawFinding]:
     and any embedded local file paths in the creator/producer strings).
     """
     try:
-        import fitz  # PyMuPDF
+        import pymupdf as fitz  # PyMuPDF (the `fitz` name is deprecated)
     except ImportError:
         yield RawFinding(
             source_type=SourceType.MEDIA_DOC,
@@ -233,7 +233,7 @@ def scan_pdf_metadata(path: Path) -> Iterator[RawFinding]:
                 )
 
         try:
-            body_text = "\n".join(page.get_text() for page in doc).strip()
+            body_text = "\n".join(page.get_text() for page in doc.pages()).strip()
             if body_text:
                 yield RawFinding(
                     source_type=SourceType.MEDIA_DOC,
@@ -322,7 +322,7 @@ def scan_office_document(path: Path) -> Iterator[RawFinding]:
         try:
             from docx import Document
 
-            doc = Document(path)
+            doc = Document(str(path))
             paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
             for table in doc.tables:
                 for row in table.rows:

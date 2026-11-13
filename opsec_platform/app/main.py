@@ -12,14 +12,25 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.staticfiles import StaticFiles
 
-from opsec_platform.app import activity_routes, auth_routes, monitor_routes, oauth_routes, scan_routes
+from opsec_platform.app import activity_routes, auth_routes, internal_routes, monitor_routes, oauth_routes, password_routes, scan_routes
 from opsec_platform.app.config import get_settings
 from opsec_platform.app.database import init_db
 from opsec_platform.app.dependencies import configure_db
 from opsec_platform.app.oauth_providers import configured_providers
 
 
-APP_VERSION = "0.4.0"
+def _package_version() -> str:
+    """Single source of truth: pyproject.toml's version via package metadata.
+    (A hand-maintained string here drifted to 0.4.0 while the package was 0.10.0.)"""
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version("opsec-scanner")
+    except PackageNotFoundError:
+        return "unknown"
+
+
+APP_VERSION = _package_version()
 logger = logging.getLogger(__name__)
 
 
@@ -39,8 +50,18 @@ def deployed_commit() -> str | None:
 def scanner_status() -> dict:
     from opsec_platform.app.scan_service import rules_status
 
+    import shutil
+
     status = rules_status()
-    return {"rules_loaded": status["rules"], "ok": status["ok"], "web_scans_enabled": get_settings().web_scans_enabled}
+    return {
+        "rules_loaded": status["rules"],
+        "ok": status["ok"],
+        "web_scans_enabled": get_settings().web_scans_enabled,
+        # Whether uploaded media get EXIF and OCR analysis on this host.
+        # Booleans only (no paths/versions), so safe on the public endpoint.
+        "exiftool_available": shutil.which("exiftool") is not None,
+        "ocr_available": shutil.which("tesseract") is not None,
+    }
 
 
 def create_app() -> FastAPI:
@@ -109,6 +130,8 @@ def create_app() -> FastAPI:
         db.close()
 
     app.include_router(auth_routes.router)
+    app.include_router(password_routes.router)
+    app.include_router(internal_routes.router)
     app.include_router(oauth_routes.router)
     app.include_router(activity_routes.router)
     app.include_router(scan_routes.router)
@@ -134,6 +157,27 @@ def create_app() -> FastAPI:
         # request to (scheme may differ behind the TLS-terminating proxy).
         host = request.headers.get("host", "").lower()
         return bool(host) and origin.split("://", 1)[-1] == host
+
+    from opsec_platform.app.client_ip import has_valid_proxy_secret, proxy_secret, proxy_secret_required
+
+    if settings.cookie_secure and not proxy_secret():
+        logger.warning(
+            "PLATFORM_PROXY_SECRET is not set: x-vercel-forwarded-for is trusted on the x-vercel-id "
+            "marker alone, so clients reaching the origin directly can spoof their IP for rate limiting."
+        )
+    if proxy_secret_required() and not proxy_secret():
+        logger.error("PLATFORM_REQUIRE_PROXY_SECRET=true has no effect: PLATFORM_PROXY_SECRET is not set.")
+
+    @app.middleware("http")
+    async def require_proxy_secret(request: Request, call_next):
+        # Optional lock-down (audit S2): refuse requests that did not come
+        # through the Vercel proxy, so the public *.onrender.com origin
+        # cannot be used to sidestep anything the proxy layer provides.
+        # /health/live stays open for the host's own probes.
+        if (proxy_secret_required() and proxy_secret() and request.url.path != "/health/live"
+                and not has_valid_proxy_secret(request)):
+            return JSONResponse(status_code=403, content={"detail": "Requests must come through the public site."})
+        return await call_next(request)
 
     @app.middleware("http")
     async def csrf_origin_guard(request: Request, call_next):
@@ -233,7 +277,7 @@ def create_app() -> FastAPI:
             db.close()
 
     @app.get("/health")
-    def health():
+    def health(request: Request):
         database = database_check()
         status_code = 200 if database == "ok" else 503
         return JSONResponse(
@@ -245,6 +289,10 @@ def create_app() -> FastAPI:
                 "database": database,
                 "sso_providers_configured": configured_providers(settings),
                 "scanner": scanner_status(),
+                "features": {"password_reset": password_routes.password_reset_available()},
+                # True when this request carried the proxy secret, i.e. it came
+                # through Vercel with PLATFORM_PROXY_SECRET set on both sides.
+                "proxy_verified": has_valid_proxy_secret(request),
             },
         )
 

@@ -45,6 +45,13 @@ SENSITIVE_PATH_MARKERS = (
 )
 
 
+
+def _patch_text(raw: str | bytes | None) -> str:
+    """GitPython gives a diff body as bytes (create_patch=True), str or None."""
+    if raw is None:
+        return ""
+    return raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw
+
 def _open_repo(repo_path: Path) -> Repo:
     try:
         return Repo(repo_path)
@@ -103,7 +110,8 @@ def _findings_from_commit(commit: Commit, origin: str) -> Iterator[RawFinding]:
     # File paths touched in this commit — cheap, high-signal scan for
     # secrets-shaped filenames and personal home-directory paths.
     try:
-        for path in commit.stats.files.keys():
+        for raw_path in commit.stats.files.keys():
+            path = str(raw_path)
             lowered = path.lower()
             if any(marker in lowered for marker in SENSITIVE_PATH_MARKERS) or "/users/" in lowered or "\\users\\" in lowered:
                 yield RawFinding(
@@ -223,7 +231,7 @@ def scan_patches(
 
                 for diff in diffs:
                     try:
-                        patch_text = diff.diff.decode("utf-8", errors="replace")
+                        patch_text = _patch_text(diff.diff)
                     except Exception:
                         continue
 
@@ -291,7 +299,7 @@ def scan_commits_in_range(repo: Repo, origin: str, since_ref: str) -> Iterator[R
                 continue
             for diff in diffs:
                 try:
-                    patch_text = diff.diff.decode("utf-8", errors="replace")
+                    patch_text = _patch_text(diff.diff)
                 except Exception:
                     continue
                 for line_no, line in enumerate(patch_text.splitlines()):
@@ -362,7 +370,7 @@ def scan_git_repo(
 
     if stats is not None:
         try:
-            all_commits = set()
+            all_commits: set[str] = set()
             for ref in repo.refs:
                 try:
                     all_commits.update(c.hexsha for c in repo.iter_commits(ref, max_count=None))

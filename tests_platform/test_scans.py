@@ -415,3 +415,14 @@ def test_redact_preview_never_returns_full_value():
     for value in ["a", "abcdefg", "abcdefgh", AWS_KEY, "x" * 200]:
         preview = redact_preview(value)
         assert preview != value and "•" in preview
+
+
+def test_findings_carry_rule_remediation(client):
+    signup(client)
+    scan = client.post("/scans/import?label=fix-me", json=export_payload([finding()])).json()
+    items = client.get(f"/scans/{scan['id']}/findings").json()
+    rows = items["items"] if isinstance(items, dict) else items
+    assert "IAM" in rows[0]["remediation"]
+    global_rows = client.get("/findings").json()
+    global_rows = global_rows["items"] if isinstance(global_rows, dict) else global_rows
+    assert "IAM" in global_rows[0]["remediation"]

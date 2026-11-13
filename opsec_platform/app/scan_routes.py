@@ -75,12 +75,14 @@ class FindingOut(BaseModel):
     occurrence_count: int
     status: str = "open"
     mitre: str | None = None
+    remediation: str | None = None
     model_config = ConfigDict(from_attributes=True)
 
 
 def _finding_out(row: Finding) -> dict:
     out = FindingOut.model_validate(row, from_attributes=True).model_dump()
     out["mitre"] = svc.mitre_for(row.rule_id)
+    out["remediation"] = svc.remediation_for(row.rule_id, row.category)
     return out
 
 
@@ -195,7 +197,7 @@ async def _read_limited(upload: UploadFile, limit: int, what: str) -> bytes:
             break
         size += len(chunk)
         if size > limit:
-            raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail=f"{what} exceeds the {limit // (1024 * 1024)} MB limit.")
+            raise HTTPException(status_code=413, detail=f"{what} exceeds the {limit // (1024 * 1024)} MB limit.")
         chunks.append(chunk)
     return b"".join(chunks)
 
@@ -364,12 +366,12 @@ async def import_findings(
     else:
         declared = request.headers.get("content-length")
         if declared and declared.isdigit() and int(declared) > limit:
-            raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Findings payload is too large.")
+            raise HTTPException(status_code=413, detail="Findings payload is too large.")
         raw = b""
         async for chunk in request.stream():
             raw += chunk
             if len(raw) > limit:
-                raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Findings payload is too large.")
+                raise HTTPException(status_code=413, detail="Findings payload is too large.")
         default_label = "CLI upload"
 
     try:
@@ -380,7 +382,7 @@ async def import_findings(
     try:
         records = svc.records_from_export(payload, settings.scan_import_max_findings)
     except svc.ScanInputError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+        raise HTTPException(status_code=422, detail=str(exc))
 
     _check_quota(db, user, server_side=False)
     payload_label = payload.get("target_label") if isinstance(payload.get("target_label"), str) else None
@@ -425,7 +427,7 @@ async def media_scan(
         content = await _read_limited(upload, settings.scan_media_max_file_mb * 1024 * 1024, f"'{upload.filename}'")
         total += len(content)
         if total > total_limit:
-            raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail=f"Upload exceeds the {settings.scan_media_max_total_mb} MB total limit.")
+            raise HTTPException(status_code=413, detail=f"Upload exceeds the {settings.scan_media_max_total_mb} MB total limit.")
         stored.append((name, content))
 
     default = files[0].filename if len(files) == 1 else f"{len(files)} uploaded files"
@@ -452,7 +454,7 @@ def git_scan(
     try:
         url = svc.normalize_git_url(payload.url)
     except svc.ScanInputError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+        raise HTTPException(status_code=422, detail=str(exc))
     depth = min(payload.depth or settings.scan_git_default_depth, settings.scan_git_max_depth)
     label = _clean_label(payload.label, url.split("://", 1)[1])
     scan = _new_scan(db, user, "git_url", label)
