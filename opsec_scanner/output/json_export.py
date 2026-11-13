@@ -14,6 +14,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+from opsec_scanner.analysis.patterns import remediation_for
 from opsec_scanner.scoring.risk_engine import ScoredFinding
 
 _REDACTED_PLACEHOLDER = "█" * 18
@@ -30,6 +31,7 @@ def export_json(scored: list[ScoredFinding], output_path: str | Path, reveal: bo
                 "risk_label": s.risk_label,
                 "rule_id": s.match.rule_id,
                 "category": s.match.category,
+                "remediation": remediation_for(s.match.rule_id, s.match.category),
                 "matched_text": s.match.matched_text if reveal else _REDACTED_PLACEHOLDER,
                 "matched_text_length": len(s.match.matched_text),
                 "base_severity": s.match.base_severity,

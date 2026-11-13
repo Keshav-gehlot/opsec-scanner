@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from opsec_scanner.analysis.patterns import remediation_for
 from opsec_scanner.scoring.risk_engine import ScoredFinding
 
 _REDACTED_PLACEHOLDER = "█" * 18
@@ -33,11 +34,25 @@ _LEVEL_MAP = {
 
 
 def _rule_descriptor(rule_id: str, category: str) -> dict:
-    return {
+    descriptor = {
         "id": rule_id,
         "shortDescription": {"text": f"OPSEC finding: {rule_id.replace('_', ' ')}"},
         "properties": {"category": category},
     }
+    fix = remediation_for(rule_id, category)
+    if fix:
+        # GitHub code scanning shows `help` on the alert page.
+        descriptor["help"] = {"text": fix, "markdown": f"**How to fix:** {fix}"}
+    return descriptor
+
+
+def _tool_version() -> str:
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version("opsec-scanner")
+    except PackageNotFoundError:
+        return "unknown"
 
 
 def export_sarif(scored: list[ScoredFinding], output_path: str | Path, reveal: bool = False) -> None:
@@ -83,7 +98,7 @@ def export_sarif(scored: list[ScoredFinding], output_path: str | Path, reveal: b
                     "driver": {
                         "name": "opsec-leak-scanner",
                         "informationUri": "https://github.com/Keshav-gehlot/opsec-scanner",
-                        "version": "0.3.0",
+                        "version": _tool_version(),
                         "rules": list(rule_ids_seen.values()),
                     }
                 },

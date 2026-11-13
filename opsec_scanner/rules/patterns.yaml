@@ -6,6 +6,7 @@ rules:
     base_severity: 9.5
     requires_entropy_check: false
     description: "AWS Access Key ID"
+    remediation: "Deactivate and delete the key in IAM (Users > Security credentials), create a new one only if still needed, and review CloudTrail for use of the old key. Removing it from git does not revoke it. https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html"
 
   - id: private_key_block
     mitre: T1552.004
@@ -14,6 +15,7 @@ rules:
     base_severity: 10.0
     requires_entropy_check: false
     description: "Private key block header"
+    remediation: "Treat the key as compromised: generate a new key pair, replace the public key wherever it is trusted (servers, deploy keys, certificates), revoke the old one, then purge it from history (git filter-repo)."
 
   - id: generic_jwt
     mitre: T1552.001
@@ -22,6 +24,7 @@ rules:
     base_severity: 8.5
     requires_entropy_check: false
     description: "JWT token"
+    remediation: "Rotate the signing secret or key that issued this token (that invalidates it) or revoke the session server-side, and stop committing tokens; load them from the environment at runtime."
 
   - id: generic_api_key_assignment
     mitre: T1552.001
@@ -30,6 +33,7 @@ rules:
     base_severity: 7.0
     requires_entropy_check: true
     description: "Generic key=value credential assignment (entropy-checked)"
+    remediation: "Rotate the credential with its provider, move it to an environment variable or secret manager, and purge the old value from history."
 
   - id: db_connection_string
     mitre: T1552.001
@@ -38,6 +42,7 @@ rules:
     base_severity: 9.0
     requires_entropy_check: false
     description: "Database connection string with embedded credentials"
+    remediation: "Change the database user's password (or drop the user), restrict network access to the database, and read the connection string from an environment variable instead of code."
 
   - id: github_pat
     mitre: T1552.001
@@ -46,6 +51,7 @@ rules:
     base_severity: 9.5
     requires_entropy_check: false
     description: "GitHub Personal Access Token / OAuth / App token"
+    remediation: "Revoke the token at github.com/settings/tokens (GitHub may already have auto-revoked it), check the account's security log for use, and use a fine-grained token with minimal scope if one is still needed."
 
   - id: slack_token
     mitre: T1552.001
@@ -54,6 +60,7 @@ rules:
     base_severity: 8.5
     requires_entropy_check: false
     description: "Slack API token"
+    remediation: "Revoke the token in the Slack app's OAuth & Permissions page (or via auth.revoke) and reinstall the app to issue a new one."
 
   - id: stripe_key
     mitre: T1552.001
@@ -62,6 +69,7 @@ rules:
     base_severity: 9.0
     requires_entropy_check: false
     description: "Stripe API key"
+    remediation: "Roll the key in the Stripe Dashboard (Developers > API keys) and check recent API logs for requests you did not make."
 
   - id: google_api_key
     mitre: T1552.001
@@ -70,6 +78,7 @@ rules:
     base_severity: 8.0
     requires_entropy_check: false
     description: "Google/GCP API key"
+    remediation: "Delete or regenerate the key in Google Cloud Console (APIs & Services > Credentials) and add API and application restrictions to the replacement."
 
   - id: gcp_service_account_key
     mitre: T1552.001
@@ -78,6 +87,7 @@ rules:
     base_severity: 9.5
     requires_entropy_check: false
     description: "Embedded GCP service account JSON key"
+    remediation: "Delete this key in IAM (Service accounts > Keys), check Cloud Audit Logs for its use, and prefer Workload Identity Federation over downloaded keys."
 
   - id: azure_connection_string
     mitre: T1552.001
@@ -86,6 +96,7 @@ rules:
     base_severity: 9.0
     requires_entropy_check: false
     description: "Azure Storage connection string with embedded key"
+    remediation: "Regenerate the storage/service access key in the Azure portal (rotate key1/key2) and move to Managed Identity or Key Vault references."
 
   - id: npm_token
     mitre: T1552.001
@@ -94,6 +105,7 @@ rules:
     base_severity: 8.0
     requires_entropy_check: false
     description: "npm access token"
+    remediation: "Revoke the token with `npm token revoke` or on npmjs.com, check your packages for unexpected versions, and use granular, CI-scoped tokens."
 
   - id: generic_bearer_token
     mitre: T1552.001
@@ -102,6 +114,7 @@ rules:
     base_severity: 6.5
     requires_entropy_check: true
     description: "Generic Bearer auth header token (entropy-checked)"
+    remediation: "Revoke or expire the token with the service that issued it and keep tokens out of code, logs and screenshots."
 
   - id: ssh_private_key_indicator
     mitre: T1552.004
@@ -110,6 +123,7 @@ rules:
     base_severity: 8.0
     requires_entropy_check: false
     description: "SSH private key filename reference"
+    remediation: "Replace the SSH key pair, remove the old public key from authorized_keys and deploy-key settings, and purge the file from history."
 
   - id: internal_ip_range
     mitre: T1590.005
@@ -118,6 +132,7 @@ rules:
     base_severity: 6.5
     requires_entropy_check: false
     description: "Internal/private IP address"
+    remediation: "Remove internal addresses from public code and docs; use hostnames resolved from configuration so your network layout is not mapped for an attacker."
 
   - id: internal_hostname
     mitre: T1590.002
@@ -126,6 +141,7 @@ rules:
     base_severity: 7.5
     requires_entropy_check: false
     description: "Internal-only hostname/domain"
+    remediation: "Move internal hostnames into configuration that is not published, and check whether the host is reachable from the internet."
 
   - id: staging_dev_url
     mitre: T1590.002
@@ -134,6 +150,7 @@ rules:
     base_severity: 6.0
     requires_entropy_check: false
     description: "Staging/dev environment URL"
+    remediation: "Remove staging/dev URLs from public material and make sure those environments require authentication and are not indexed."
 
   - id: personal_email_domain
     mitre: T1589.002
@@ -142,6 +159,7 @@ rules:
     base_severity: 4.5
     requires_entropy_check: false
     description: "Personal email address on a work/public artifact"
+    remediation: "Rewrite commit identity to a no-reply or work address (git config user.email; GitHub's noreply address) and, if needed, rewrite history with git filter-repo --mailmap."
 
   - id: unix_home_path
     mitre: T1589.003
@@ -150,6 +168,7 @@ rules:
     base_severity: 2.5
     requires_entropy_check: false
     description: "Unix-style user home directory path"
+    remediation: "Use relative paths or environment variables; the path exposes your local username and machine layout."
 
   - id: windows_home_path
     mitre: T1589.003
@@ -158,6 +177,7 @@ rules:
     base_severity: 2.5
     requires_entropy_check: false
     description: "Windows user home directory path"
+    remediation: "Use relative paths or %USERPROFILE%-style variables; the path exposes your local username."
 
   - id: macos_local_hostname
     mitre: T1592
@@ -166,6 +186,7 @@ rules:
     base_severity: 3.0
     requires_entropy_check: false
     description: "macOS Bonjour .local hostname (often leaks device/owner name)"
+    remediation: "Set a generic computer name (System Settings > General > Sharing) and fix the commit email (git config user.email) so it no longer embeds the machine name."
 
   # ---- Added for the web workspace detection modules -------------------
   - id: openai_api_key
@@ -175,6 +196,7 @@ rules:
     base_severity: 9.0
     requires_entropy_check: false
     description: "OpenAI-style secret API key"
+    remediation: "Revoke the key at platform.openai.com/api-keys, create a new one, and check usage for unexpected spend."
 
   - id: anthropic_api_key
     category: credentials
@@ -183,6 +205,7 @@ rules:
     base_severity: 9.0
     requires_entropy_check: false
     description: "Anthropic API key"
+    remediation: "Delete the key in the Anthropic Console (Settings > API keys), create a new one, and review usage for unexpected spend."
 
   - id: sendgrid_api_key
     category: credentials
@@ -191,6 +214,7 @@ rules:
     base_severity: 8.5
     requires_entropy_check: false
     description: "SendGrid API key"
+    remediation: "Delete the key in SendGrid (Settings > API Keys); check Activity for mail you did not send."
 
   - id: twilio_api_key
     category: credentials
@@ -199,6 +223,7 @@ rules:
     base_severity: 8.0
     requires_entropy_check: false
     description: "Twilio API key SID"
+    remediation: "Delete the API key in the Twilio Console and review usage logs; rotate the auth token if it was exposed too."
 
   - id: telegram_bot_token
     category: credentials
@@ -207,6 +232,7 @@ rules:
     base_severity: 8.0
     requires_entropy_check: false
     description: "Telegram bot token"
+    remediation: "Revoke the token with @BotFather (/revoke) and update the bot to the new token."
 
   - id: chat_webhook_url
     category: credentials
@@ -215,6 +241,7 @@ rules:
     base_severity: 7.5
     requires_entropy_check: false
     description: "Slack or Discord incoming webhook URL (anyone holding it can post)"
+    remediation: "Delete and recreate the webhook in Slack/Discord/Teams; anyone with the URL can post to the channel."
 
   - id: credit_card_number
     category: financial
@@ -224,6 +251,7 @@ rules:
     base_severity: 8.5
     requires_entropy_check: false
     description: "Payment card number (Luhn-valid)"
+    remediation: "Remove the number everywhere it was published, notify the card holder/issuer so the card can be replaced, and check PCI DSS obligations."
 
   - id: iban
     category: financial
@@ -233,6 +261,7 @@ rules:
     base_severity: 7.0
     requires_entropy_check: false
     description: "International bank account number (checksum-valid IBAN)"
+    remediation: "Remove the account number from public material; tell the account holder so they can watch for fraudulent direct debits."
 
   - id: aadhaar_number
     category: personal_id
@@ -242,6 +271,7 @@ rules:
     base_severity: 8.0
     requires_entropy_check: false
     description: "Aadhaar number (Verhoeff-valid)"
+    remediation: "Remove the number from public material; the holder can lock biometrics and use a masked Aadhaar or Virtual ID (myaadhaar.uidai.gov.in)."
 
   - id: indian_pan
     category: personal_id
@@ -250,6 +280,7 @@ rules:
     base_severity: 6.5
     requires_entropy_check: false
     description: "Indian PAN card number"
+    remediation: "Remove the PAN from public material and tell the holder; it is used for identity fraud and loan applications."
 
   - id: us_ssn
     category: personal_id
@@ -259,6 +290,7 @@ rules:
     base_severity: 8.0
     requires_entropy_check: false
     description: "US Social Security Number"
+    remediation: "Remove the SSN everywhere it was published and advise the person to freeze their credit with the three bureaus."
 
   - id: phone_number
     category: personal
@@ -267,4 +299,5 @@ rules:
     base_severity: 3.5
     requires_entropy_check: false
     description: "Phone number in international format"
+    remediation: "Remove personal phone numbers from public material; they enable SIM-swap and social-engineering attacks."
 

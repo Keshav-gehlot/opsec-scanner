@@ -233,7 +233,7 @@ def scan_pdf_metadata(path: Path) -> Iterator[RawFinding]:
                 )
 
         try:
-            body_text = "\n".join(page.get_text() for page in doc).strip()
+            body_text = "\n".join(page.get_text() for page in doc.pages()).strip()
             if body_text:
                 yield RawFinding(
                     source_type=SourceType.MEDIA_DOC,

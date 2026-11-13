@@ -18,6 +18,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import functools
 import os
 
 import yaml
@@ -79,6 +80,7 @@ class Rule:
     description: str
     validator: str | None = None        # name in VALIDATORS; match dropped if it fails
     mitre: str | None = None            # MITRE ATT&CK technique id, e.g. T1552.001
+    remediation: str | None = None      # how to fix / rotate, shown in every report
 
 
 @dataclass
@@ -197,6 +199,7 @@ def load_rules(path: Path | str | None = None) -> list[Rule]:
                     description=r.get("description", ""),
                     validator=_validator_name(r.get("validator")),
                     mitre=r.get("mitre"),
+                    remediation=r.get("remediation"),
                 )
             )
         except (re.error, KeyError, ValueError) as e:
@@ -285,3 +288,36 @@ def scan_findings(
             )
 
     return matches
+
+
+CATEGORY_REMEDIATION = {
+    "credentials": "Revoke or rotate the credential with the service that issued it (deleting it from git does not "
+                   "revoke it), load secrets from the environment or a secret manager, then purge it from history.",
+    "infrastructure": "Remove internal infrastructure details from public material and check whether the exposed "
+                      "host or service is reachable from the internet.",
+    "personal": "Remove the personal detail from public material and, for commit metadata, set a no-reply "
+                "address (git config user.email).",
+    "personal_id": "Remove the identity number from public material and tell the person it belongs to so they can "
+                   "watch for identity fraud.",
+    "financial": "Remove the account or card number from public material and tell the holder so the issuer can "
+                 "replace or monitor it.",
+    "system": "Use relative paths and generic machine names; local usernames and hostnames help target you.",
+    "misconfiguration": "Block public access to the file or path on the web server (or delete it), then rotate "
+                        "anything it contained.",
+    "email_security": "Publish SPF and an enforcing DMARC policy (p=quarantine or p=reject) so others cannot "
+                      "send mail as your domain.",
+    "code_exposure": "Remove the code or make the repository/gist private, and rotate any secret it contained.",
+}
+
+
+@functools.lru_cache(maxsize=1)
+def _remediation_map() -> dict[str, str]:
+    try:
+        return {r.id: r.remediation for r in load_rules() if r.remediation}
+    except SystemExit:
+        return {}
+
+
+def remediation_for(rule_id: str, category: str | None = None) -> str | None:
+    """Rule-specific fix from the rule set, else general advice for its category."""
+    return _remediation_map().get(rule_id) or CATEGORY_REMEDIATION.get(category or "")

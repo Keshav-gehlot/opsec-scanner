@@ -75,12 +75,14 @@ class FindingOut(BaseModel):
     occurrence_count: int
     status: str = "open"
     mitre: str | None = None
+    remediation: str | None = None
     model_config = ConfigDict(from_attributes=True)
 
 
 def _finding_out(row: Finding) -> dict:
     out = FindingOut.model_validate(row, from_attributes=True).model_dump()
     out["mitre"] = svc.mitre_for(row.rule_id)
+    out["remediation"] = svc.remediation_for(row.rule_id, row.category)
     return out
 
 

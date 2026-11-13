@@ -112,6 +112,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Bearer token for --report-activity. Falls back to the OPSEC_PLATFORM_TOKEN environment variable if not given.",
     )
     parser.add_argument(
+        "--verify-secrets",
+        action="store_true",
+        help="Ask each found credential's own issuer (GitHub, Slack, Stripe, OpenAI, Anthropic, SendGrid, npm, "
+             "Telegram) whether it still works, via a read-only identity call. Live credentials become CRITICAL. "
+             "Values go only to their issuer over HTTPS and are never printed. Off by default.",
+    )
+    parser.add_argument(
         "--fail-on-report-error",
         action="store_true",
         help="With --report-activity: exit with status 3 (after writing every local report) if the scan could not be "
@@ -304,6 +311,21 @@ def cli() -> None:
     scored = score_findings(matches, profile, exposure_override=exposure_override)
     scored = deduplicate_findings(scored)
     console.print(f"[bold]{len(scored)}[/bold] unique findings after deduplication")
+
+    if args.verify_secrets:
+        from opsec_scanner.analysis.verify import verify_findings
+
+        counts = verify_findings(scored)
+        checked = counts["active"] + counts["inactive"] + counts["unknown"]
+        if checked or counts["skipped"]:
+            console.print(
+                f"[bold]Secret verification:[/bold] {counts['active']} live, {counts['inactive']} rejected, "
+                f"{counts['unknown']} unknown" + (f", {counts['skipped']} over the per-run limit" if counts["skipped"] else "")
+            )
+            if counts["active"]:
+                console.print("[bold red]Live credentials found — revoke them now; see 'How to fix' in the report.[/bold red]")
+        else:
+            console.print("[dim]Secret verification: no verifiable credential types found.[/dim]")
 
     if args.save_history:
         label = args.target_label or "+".join(args.repo + args.media_dir) or "unlabeled-target"
