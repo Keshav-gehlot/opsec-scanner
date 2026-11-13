@@ -53,6 +53,7 @@ def test_require_proxy_secret_blocks_direct_origin_access(monkeypatch):
     assert client.get("/health").status_code == 403
     assert client.post("/auth/login", json={"email": "a@example.com", "password": "x"}).status_code == 403
     assert client.get("/health/live").status_code == 200
+    assert client.get("/health/ready").status_code == 200  # Render's health check path
     assert client.get("/health", headers={"x-opsec-proxy-secret": SECRET}).status_code == 200
 
 

@@ -147,7 +147,7 @@ This is a working reference implementation, not a hardened production deployment
   trusts the forwarded address only when it matches. `/health` reports `proxy_verified: true`
   for a request that came through the proxy correctly. Once that shows `true`, set
   `PLATFORM_REQUIRE_PROXY_SECRET=true` on Render to refuse every request that bypasses Vercel
-  (`/health/live` stays open).
+  (`/health/live` and `/health/ready`, which Render's health check calls directly, stay open).
 - **`PLATFORM_JWT_SECRET` must be a real secret, generated once, and kept out of source
   control.** Anyone with this value can forge valid sessions for any user.
 - **SSO in HTTPS deployments requires two more variables.** `PLATFORM_OAUTH_SESSION_SECRET`

@@ -173,8 +173,10 @@ def create_app() -> FastAPI:
         # Optional lock-down (audit S2): refuse requests that did not come
         # through the Vercel proxy, so the public *.onrender.com origin
         # cannot be used to sidestep anything the proxy layer provides.
-        # /health/live stays open for the host's own probes.
-        if (proxy_secret_required() and proxy_secret() and request.url.path != "/health/live"
+        # The host's own probes call the origin directly, so the liveness and
+        # readiness checks stay open (Render's health check is /health/ready;
+        # locking it would make Render restart a healthy service).
+        if (proxy_secret_required() and proxy_secret() and request.url.path not in ("/health/live", "/health/ready")
                 and not has_valid_proxy_secret(request)):
             return JSONResponse(status_code=403, content={"detail": "Requests must come through the public site."})
         return await call_next(request)
