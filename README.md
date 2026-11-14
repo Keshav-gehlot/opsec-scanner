@@ -433,6 +433,10 @@ The platform wiring supports:
 - Microsoft Entra ID
 - Apple
 
+**Production (opsec-scanner-seven.vercel.app) enables Google and GitHub.** Microsoft and Apple
+are implemented and tested but intentionally not configured there (decision 2026-11-14); the
+sign-in page only shows providers whose credentials are set.
+
 Real provider credentials are deployment-specific and are intentionally not committed to the repository.
 
 Before enabling a provider in production, verify its callback URL, credential validity, and provider-specific identity verification semantics.
