@@ -75,3 +75,14 @@ def test_health_reports_whether_request_came_through_proxy(monkeypatch):
     client = _client(monkeypatch, PLATFORM_PROXY_SECRET=SECRET)
     assert client.get("/health").json()["proxy_verified"] is False
     assert client.get("/health", headers={"x-opsec-proxy-secret": SECRET}).json()["proxy_verified"] is True
+
+
+def test_previous_secret_is_accepted_during_rotation(monkeypatch):
+    old, new = SECRET, "rotated-proxy-secret-0123456789abcdefgh"
+    client = _client(monkeypatch, PLATFORM_PROXY_SECRET=new, PLATFORM_PROXY_SECRET_PREVIOUS=old,
+                     PLATFORM_REQUIRE_PROXY_SECRET="true")
+    assert client.get("/health", headers={"x-opsec-proxy-secret": old}).status_code == 200
+    assert client.get("/health", headers={"x-opsec-proxy-secret": new}).status_code == 200
+    assert client.get("/health", headers={"x-opsec-proxy-secret": "guess"}).status_code == 403
+    monkeypatch.delenv("PLATFORM_PROXY_SECRET_PREVIOUS")
+    assert client.get("/health", headers={"x-opsec-proxy-secret": old}).status_code == 403

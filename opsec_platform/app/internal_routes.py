@@ -31,7 +31,11 @@ def run_scheduler(request: Request):
     if len(token.encode()) < MIN_TOKEN_BYTES:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
     supplied = request.headers.get("authorization", "")
-    if not hmac.compare_digest(supplied.encode(), f"Bearer {token}".encode()):
+    accepted = [token]
+    previous = os.environ.get("PLATFORM_SCHEDULER_TOKEN_PREVIOUS", "").strip()
+    if len(previous.encode()) >= MIN_TOKEN_BYTES:
+        accepted.append(previous)  # old token still valid while rotating
+    if not any([hmac.compare_digest(supplied.encode(), f"Bearer {t}".encode()) for t in accepted]):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid scheduler token.")
     from opsec_platform.app.osint import scheduler
 

@@ -148,6 +148,14 @@ This is a working reference implementation, not a hardened production deployment
   for a request that came through the proxy correctly. Once that shows `true`, set
   `PLATFORM_REQUIRE_PROXY_SECRET=true` on Render to refuse every request that bypasses Vercel
   (`/health/live` and `/health/ready`, which Render's health check calls directly, stay open).
+- **Rotating secrets without downtime.** Proxy secret: on Render set
+  `PLATFORM_PROXY_SECRET_PREVIOUS` to the current value and `PLATFORM_PROXY_SECRET` to the new
+  one; then set the new value on Vercel and redeploy Vercel; once `/health` shows
+  `proxy_verified: true`, delete `PLATFORM_PROXY_SECRET_PREVIOUS`. Scheduler token: the same
+  with `PLATFORM_SCHEDULER_TOKEN_PREVIOUS` on Render and the `PLATFORM_SCHEDULER_TOKEN`
+  repository secret on GitHub. OAuth client secret: generate a new one in the provider's app
+  settings, put it on Render, then delete the old one at the provider. `PLATFORM_JWT_SECRET`:
+  changing it signs everyone out (no previous-value support, by design).
 - **`PLATFORM_JWT_SECRET` must be a real secret, generated once, and kept out of source
   control.** Anyone with this value can forge valid sessions for any user.
 - **SSO in HTTPS deployments requires two more variables.** `PLATFORM_OAUTH_SESSION_SECRET`

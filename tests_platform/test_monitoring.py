@@ -458,3 +458,16 @@ def test_scheduler_trigger_endpoint_is_token_gated(monkeypatch):
     assert client.post("/internal/scheduler/run", headers={"Authorization": "Bearer nope"}).status_code == 401
     r = client.post("/internal/scheduler/run", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 200 and r.json() == {"started": 0}
+
+
+def test_scheduler_previous_token_is_accepted_during_rotation(monkeypatch):
+    from test_hardening import _client
+
+    client = _client(monkeypatch)
+    old, new = "scheduler-token-old-0123456789abcdefghij", "scheduler-token-new-0123456789abcdefghij"
+    monkeypatch.setenv("PLATFORM_SCHEDULER_TOKEN", new)
+    monkeypatch.setenv("PLATFORM_SCHEDULER_TOKEN_PREVIOUS", old)
+    for token in (old, new):
+        assert client.post("/internal/scheduler/run", headers={"Authorization": f"Bearer {token}"}).status_code == 200
+    monkeypatch.setenv("PLATFORM_SCHEDULER_TOKEN_PREVIOUS", "short")  # too short: ignored
+    assert client.post("/internal/scheduler/run", headers={"Authorization": "Bearer short"}).status_code == 401
