@@ -220,3 +220,42 @@ jobs:
       - name: Logs on failure
         if: failure()
         run: docker logs api || true
+
+  # Render does not receive this repository's push webhooks (the service was
+  # never linked through the Render GitHub app), so autoDeploy never fires.
+  # Deploy through a Render deploy hook instead, and only after every check
+  # above passed on main. Set the hook URL (Render dashboard -> service ->
+  # Settings -> Deploy Hook) as the repository secret RENDER_DEPLOY_HOOK_URL;
+  # without it this job is a no-op.
+  deploy-render:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [test, webui-test, platform-test, platform-frontend-test, docker-image]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions: {}
+    env:
+      HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+    steps:
+      - name: Trigger Render deploy
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "::notice title=Render deploy skipped::Set the RENDER_DEPLOY_HOOK_URL repository secret to deploy main to Render after CI."
+            exit 0
+          fi
+          code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST --max-time 30 "$HOOK?ref=${GITHUB_SHA}")
+          echo "Render deploy hook: HTTP $code"
+          test "$code" -lt 300
+      - name: Wait for the new commit to go live
+        if: env.HOOK != ''
+        env:
+          URL: https://opsec-scanner-seven.vercel.app/health
+        run: |
+          want=${GITHUB_SHA:0:12}
+          for attempt in $(seq 1 30); do
+            got=$(curl -sS --max-time 60 "$URL" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("commit",""))' 2>/dev/null || true)
+            echo "attempt $attempt: live commit ${got:-?}"
+            if [ "$got" = "$want" ]; then exit 0; fi
+            sleep 30
+          done
+          echo "::error title=Deploy not live::$URL still does not report $want after 15 minutes."
+          exit 1

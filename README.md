@@ -626,16 +626,25 @@ The platform entrypoint is configured for Vercel through the project configurati
 
 ### Render
 
-The deployed FastAPI service uses:
+The API runs on Render from the repository `Dockerfile` (exiftool and Tesseract included,
+non-root user), configured by `render.yaml`; Postgres is on Supabase. Migrations run at
+startup. Keep credentials in Render environment variables (`sync: false` keys in `render.yaml`).
 
-```
-pip install '.[platform]'
-uvicorn opsec_platform.app.main:app --host 0.0.0.0 --port $PORT
-```
-
-Use a dedicated PostgreSQL database for production and keep database credentials in Render environment variables.
+Deploys: Vercel deploys every push to `main`. Render is deployed by the `deploy-render` CI job
+after all checks pass, through a Render deploy hook stored as the `RENDER_DEPLOY_HOOK_URL`
+repository secret; the job then waits until `/health` reports the new commit. Without the
+secret the job is skipped and Render needs a manual deploy.
 
 ## Change history
+
+### v0.12
+
+- Monitoring sources (official APIs, verified targets only): search-engine dorks (Brave Search
+  API / self-hosted SearXNG), username presence on 12 platforms, Intelligence X paste/leak/dark-web
+  index, ASN + GeoIP enrichment, AlienVault OTX and AbuseIPDB threat intel.
+- Analysis: name detection (spaCy optional), optional LLM triage verdict per finding.
+- Integrations: Jira Cloud.
+- CI deploys Render after checks pass (deploy hook).
 
 ### v0.11
 
