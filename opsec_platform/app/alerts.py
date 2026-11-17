@@ -30,7 +30,7 @@ from opsec_platform.app.osint import net
 
 logger = logging.getLogger(__name__)
 
-KINDS = ("slack", "discord", "telegram", "webhook", "github_issues", "email")
+KINDS = ("slack", "discord", "telegram", "webhook", "github_issues", "jira", "email")
 SEVERITY_ORDER = {"LOW": 0, "MEDIUM": 1, "HIGH": 2, "CRITICAL": 3}
 
 
@@ -101,6 +101,20 @@ def validate_config(kind: str, config: dict) -> tuple[dict, str]:
         if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo) or len(token) < 20:
             raise IntegrationError("GitHub Issues needs owner/repo and a token with issues:write.")
         return {"repo": repo, "token": token}, repo
+    if kind == "jira":
+        base = config.get("base_url", "").rstrip("/")
+        host = _https_host(base)
+        if not host.endswith(".atlassian.net") or urlparse(base).path not in ("", "/"):
+            raise IntegrationError("Jira needs your Jira Cloud site URL (https://your-team.atlassian.net).")
+        email, token = config.get("email", ""), config.get("api_token", "")
+        project = config.get("project_key", "").upper()
+        issue_type = config.get("issue_type") or "Task"
+        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email) or len(token) < 16:
+            raise IntegrationError("Jira needs the Atlassian account email and an API token.")
+        if not re.fullmatch(r"[A-Z][A-Z0-9_]{1,19}", project) or not re.fullmatch(r"[\w -]{1,40}", issue_type):
+            raise IntegrationError("Jira needs a project key (e.g. SEC) and an issue type (e.g. Task).")
+        return ({"base_url": f"https://{host}", "email": email, "api_token": token, "project_key": project,
+                 "issue_type": issue_type}, f"{host} · {project}")
     if kind == "email":
         if not os.environ.get("PLATFORM_SMTP_HOST"):
             raise IntegrationError("Email alerts need PLATFORM_SMTP_HOST (and related settings) on the server.")
@@ -165,6 +179,18 @@ def send(kind: str, config: dict, alert: dict, user_email: str, post=net.safe_re
                                    "labels": ["opsec-scanner"]},
                         headers={"Authorization": f"Bearer {config['token']}", "Accept": "application/vnd.github+json"},
                         timeout=15)
+    elif kind == "jira":
+        auth = base64.b64encode(f"{config['email']}:{config['api_token']}".encode()).decode("ascii")
+        response = post("POST", f"{config['base_url']}/rest/api/3/issue",
+                        json_body={"fields": {
+                            "project": {"key": config["project_key"]},
+                            "issuetype": {"name": config.get("issue_type") or "Task"},
+                            "summary": alert["title"][:250],
+                            "labels": ["opsec-scanner"],
+                            "description": _adf(alert),
+                        }},
+                        headers={"Authorization": f"Basic {auth}", "Accept": "application/json"},
+                        timeout=15)
     elif kind == "email":
         _send_email(user_email, alert)
         return
@@ -172,6 +198,19 @@ def send(kind: str, config: dict, alert: dict, user_email: str, post=net.safe_re
         raise IntegrationError("Unknown integration type.")
     if response.status_code >= 300:
         raise IntegrationError(f"Destination returned HTTP {response.status_code}.")
+
+
+def _adf(alert: dict) -> dict:
+    """Atlassian Document Format body for a Jira issue."""
+    def para(text: str) -> dict:
+        return {"type": "paragraph", "content": [{"type": "text", "text": text}]} if text else {"type": "paragraph"}
+
+    return {"type": "doc", "version": 1, "content": [
+        para(alert["summary"]),
+        {"type": "codeBlock", "content": [{"type": "text", "text": "\n".join(alert["lines"])[:30000] or "-"}]},
+        {"type": "paragraph", "content": [{"type": "text", "text": "Open in OPSEC Scanner",
+                                           "marks": [{"type": "link", "attrs": {"href": alert["link"]}}]}]},
+    ]}
 
 
 def smtp_configured() -> bool:

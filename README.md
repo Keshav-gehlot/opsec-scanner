@@ -11,6 +11,11 @@
   <img src="https://img.shields.io/badge/focus-OPSEC-a8a29e" alt="OPSEC">
 </p>
 
+<p align="center">
+  <a href="https://opsec-scanner-seven.vercel.app"><strong>Live platform → opsec-scanner-seven.vercel.app</strong></a>
+  &nbsp;·&nbsp; <a href="https://opsec-scanner-seven.vercel.app/health">status</a>
+</p>
+
 > **Security first:** scan your own repositories and media. Findings are redacted by default, and the CLI stays local unless you explicitly enable activity reporting.
 
 ## Project at a glance
@@ -286,6 +291,7 @@ opsec-scan \
 | `--report-activity-token TOKEN` | Token used with `--report-activity` |
 | `--fail-on-report-error` | With `--report-activity`: exit 3 if the report/upload failed (after writing local reports) |
 | `--platform-login URL` | Sign in, create a CLI access token, print `export OPSEC_PLATFORM_TOKEN=…`, exit |
+| `--no-ner` | Skip the name pass (your real name in commits/documents; with `pip install '.[nlp]'` + `python -m spacy download en_core_web_sm`, also other people's names in documents) |
 | `--verify-secrets` | Ask each credential's issuer whether it is still live; live ones become CRITICAL (opt-in, values never printed) |
 
 ## Project configuration

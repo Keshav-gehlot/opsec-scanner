@@ -222,15 +222,30 @@ All limits are environment variables; see `.env.example`.
 | Layer | Implemented as | Code |
 | --- | --- | --- |
 | Inputs | Monitored targets: domain, URL, email, GitHub handle — each **ownership-verified** (DNS TXT / `.well-known` file, account email, public gist) | `osint/verification.py`, `/targets` |
-| Collection | Crawler for verified sites (robots.txt respected, same-site only) + exposure checks (`.git`, `.env`, backups, `.DS_Store`, server-status); DNS, SPF/DMARC, certificate-transparency subdomains, RDAP/WHOIS, IP ownership, optional Shodan; GitHub code search and a handle's gists/repos; optional HaveIBeenPwned breach + paste exposure | `osint/collectors.py` |
-| Processing | Line extraction, normalisation, path rewriting, deduplication, IP → network enrichment | `osint/collectors.py`, `scan_service.py` |
-| Analysis | Pattern rules + checksum validators (Luhn, Verhoeff/Aadhaar, IBAN, SSN) for credentials, PII, IDs, financial data, misconfiguration; identity correlation; risk scoring; MITRE ATT&CK per rule | `rules/patterns.yaml`, `opsec_scanner/analysis/patterns.py` |
+| Collection | Crawler for verified sites (robots.txt respected, same-site only) + exposure checks (`.git`, `.env`, backups, `.DS_Store`, server-status); DNS, SPF/DMARC, certificate-transparency subdomains, RDAP/WHOIS, IP ownership, optional Shodan; GitHub code search and a handle's gists/repos; optional HaveIBeenPwned breach + paste exposure; optional search-engine dorks (Brave Search API or a self-hosted SearXNG that queries Google/Bing/DuckDuckGo); username presence on 12 public platforms via their own APIs; paste / leak / dark-web index (Intelligence X API, metadata only); threat-intel feeds (AlienVault OTX, AbuseIPDB) | `osint/collectors.py`, `osint/intel.py` |
+| Processing | Line extraction, normalisation, path rewriting, deduplication, IP → network, ASN (Team Cymru DNS) and GeoIP (ipinfo.io) enrichment | `osint/collectors.py`, `scan_service.py` |
+| Analysis | Pattern rules + checksum validators (Luhn, Verhoeff/Aadhaar, IBAN, SSN) for credentials, PII, IDs, financial data, misconfiguration; identity correlation; named-entity pass (your real name, other people's names in documents; spaCy if installed, exact name match otherwise); risk scoring; MITRE ATT&CK per rule; optional LLM triage verdict per finding (advisory) | `rules/patterns.yaml`, `opsec_scanner/analysis/patterns.py`, `opsec_scanner/analysis/ner.py`, `triage.py` |
 | Storage | Results DB (redacted previews + keyed fingerprints), triage state, encrypted integration configs; search over findings in Postgres | `models.py` |
 | Output | Executive summary (exposure index, recommendations, optional AI paragraph), global findings search + triage, Domain & infra, identity graph, PDF/TXT/JSON/CSV/SARIF | `reports.py`, `monitor_routes.py`, `static/workspace.js` |
-| Integrations | Slack, Discord, Telegram, signed JSON webhook (SIEM/SOAR), GitHub Issues, email (SMTP) | `alerts.py`, `/integrations` |
+| Integrations | Slack, Discord, Telegram, signed JSON webhook (SIEM/SOAR), GitHub Issues, Jira Cloud, email (SMTP) | `alerts.py`, `/integrations` |
 | Supporting | Scheduler for daily/weekly re-scans (multi-process safe claim), in-process job pool, JSON logs | `osint/scheduler.py`, `logging_setup.py` |
 
-**Deliberately not implemented:** social-media and search-engine scraping, dark-web/onion crawling and scraping paste sites by name. They collect data about any person typed in, cannot be restricted to identifiers the user owns, and break those sites' terms. Breach and paste exposure for the user's own verified email comes from HaveIBeenPwned instead. Elasticsearch/Celery/Redis are not used; Postgres and the in-process pool cover this scale.
+**Official APIs only, verified targets only.** Search, username, paste/leak/dark-web and threat-intel lookups run only for targets the user has proved they own, and only through each provider's documented API (no HTML scraping of Google, social sites or paste sites, no onion crawling). Intelligence X results are stored as metadata (bucket, name, date), never file contents. Every source is skipped with a note when its key is unset. Google's Custom Search JSON API is closed to new customers, so Google/Bing/DuckDuckGo coverage comes through a self-hosted SearXNG instance instead.
+
+| Source | Setting | Target kinds |
+| --- | --- | --- |
+| Brave Search API | `PLATFORM_BRAVE_SEARCH_API_KEY` | domain, email |
+| SearXNG (self-hosted) | `PLATFORM_SEARXNG_URL` | domain, email |
+| Intelligence X | `PLATFORM_INTELX_API_KEY`, `PLATFORM_INTELX_API_URL` | domain, email |
+| ipinfo.io GeoIP | `PLATFORM_IPINFO_TOKEN` (optional; works without, rate-limited) | domain IPs |
+| Team Cymru ASN | none (DNS) | domain IPs |
+| AlienVault OTX | `PLATFORM_OTX_API_KEY` | domain + IPs |
+| AbuseIPDB | `PLATFORM_ABUSEIPDB_API_KEY` | domain IPs |
+| Username presence (GitLab, Codeberg, Bitbucket, Docker Hub, npm, PyPI, Keybase, Hacker News, DEV, Reddit, Mastodon, Lobsters) | none | GitHub handle |
+| Name detection (NER) | `PLATFORM_NER_ENABLED` (default true); install `.[nlp]` + `en_core_web_sm` for spaCy | all scans |
+| LLM triage | `PLATFORM_LLM_TRIAGE=true` + `PLATFORM_LLM_API_KEY` + `PLATFORM_LLM_MODEL` | stored findings |
+
+LLM triage sends, per finding, only the rule id, category, source type, the redacted preview and 300 characters of context; the verdict never changes scores, status or alerts. The Docker image does not include spaCy by default (Render's free instance has 512 MB); build with `--build-arg INSTALL_NLP=true` to add it. Elasticsearch/Celery/Redis are not used; Postgres and the in-process pool cover this scale.
 
 **Network safety.** Every user-influenced request goes through `osint/net.py`: http(s) only, ports 80/443, all resolved addresses must be public, the connection is pinned to the vetted IP (Host header + TLS SNI keep the name, so DNS rebinding cannot redirect it), each redirect is re-validated, bodies are capped. Webhook destinations use the same client.
 

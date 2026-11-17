@@ -623,7 +623,7 @@ function findingsTable(items, openSet, showTarget) {
         '<td><span class="preview">' + esc(x.preview) + '</span><div class="cell-sub">' + x.matched_length + ' chars</div></td>' +
         '<td>' + (showTarget && x.target_label ? '<div class="cell-sub"><a class="link-button" href="#/scan/' + esc(x.scan_id) + '">' + esc(x.target_label) + "</a></div>" : "") + '<div class="small">' + esc(x.origin || "—") + '</div><div class="cell-sub">' + esc(x.context || "") + '</div></td>' +
         '<td data-stop="1">' + statusSelect(x) + '</td><td class="num">' + x.occurrence_count + "×</td></tr>" +
-        (open ? '<tr class="detail-row"><td colspan="6"><dl class="detail-grid">' + (x.description ? "<dt>Rule</dt><dd>" + esc(x.description) + "</dd>" : "") + (x.remediation ? "<dt>How to fix</dt><dd>" + esc(x.remediation) + "</dd>" : "") + '<dt>Identity correlation</dt><dd>' + esc(x.identity_reason || "—") + " (×" + (x.identity_confidence ?? "—") + ')</dd><dt>Exposure</dt><dd>' + esc((x.exposure_level || "—").replaceAll("_", " ")) + '</dd><dt>Base severity</dt><dd>' + esc(x.base_severity ?? "—") + '</dd><dt>Entropy</dt><dd>' + esc(x.entropy_score === null || x.entropy_score === undefined ? "not checked" : Number(x.entropy_score).toFixed(2)) + '</dd><dt>Source</dt><dd>' + esc((x.source_type || "—").replaceAll("_", " ")) + '</dd><dt>MITRE ATT&amp;CK</dt><dd>' + (mitreTag(x.mitre) || "—") + '</dd><dt>Fingerprint</dt><dd class="mono">' + esc(x.fingerprint) + "</dd></dl></td></tr>" : "");
+        (open ? '<tr class="detail-row"><td colspan="6"><dl class="detail-grid">' + (x.description ? "<dt>Rule</dt><dd>" + esc(x.description) + "</dd>" : "") + (x.remediation ? "<dt>How to fix</dt><dd>" + esc(x.remediation) + "</dd>" : "") + (x.ai_verdict ? "<dt>AI triage</dt><dd>" + esc(x.ai_verdict.replaceAll("_", " ")) + (x.ai_reason ? " — " + esc(x.ai_reason) : "") + ' <span class="muted">(advisory)</span></dd>' : "") + '<dt>Identity correlation</dt><dd>' + esc(x.identity_reason || "—") + " (×" + (x.identity_confidence ?? "—") + ')</dd><dt>Exposure</dt><dd>' + esc((x.exposure_level || "—").replaceAll("_", " ")) + '</dd><dt>Base severity</dt><dd>' + esc(x.base_severity ?? "—") + '</dd><dt>Entropy</dt><dd>' + esc(x.entropy_score === null || x.entropy_score === undefined ? "not checked" : Number(x.entropy_score).toFixed(2)) + '</dd><dt>Source</dt><dd>' + esc((x.source_type || "—").replaceAll("_", " ")) + '</dd><dt>MITRE ATT&amp;CK</dt><dd>' + (mitreTag(x.mitre) || "—") + '</dd><dt>Fingerprint</dt><dd class="mono">' + esc(x.fingerprint) + "</dd></dl></td></tr>" : "");
     }).join("") + "</tbody></table></div>";
 }
 
@@ -722,10 +722,10 @@ async function renderSummary() {
 
 const KIND_LABEL = { domain: "Domain", url: "Web page / URL", email: "Email address", github_handle: "GitHub handle" };
 const KIND_HINT = {
-  domain: "Crawls the site, checks for exposed .git/.env/backups, DNS, SPF/DMARC, certificate-log subdomains, WHOIS/RDAP and IP owners.",
+  domain: "Crawls the site, checks for exposed .git/.env/backups, DNS, SPF/DMARC, certificate-log subdomains, WHOIS/RDAP and IP owners with ASN/GeoIP, plus optional search-engine dorks, paste/leak/dark-web index and threat-intel feeds.",
   url: "Crawls this page and its links on the same site. Its domain must be verified first.",
-  email: "Breach and paste exposure (HaveIBeenPwned) and public code mentions. Only your account email can be added.",
-  github_handle: "Scans the handle's public gists and its three most recently pushed repositories.",
+  email: "Breach and paste exposure (HaveIBeenPwned) public code mentions, and optional search-engine and paste/leak index lookups. Only your account email can be added.",
+  github_handle: "Scans the handle's public gists and its three most recently pushed repositories, and checks whether the same username exists on other public platforms.",
 };
 
 async function renderTargets() {
@@ -787,6 +787,19 @@ function targetRow(t) {
 
 // ------------------------------------------------------------------ domain & infra
 
+function infraIntel(i) {
+  const ti = i.threat_intel || {}, otx = ti.otx || {}, abuse = ti.abuseipdb || {};
+  const listed = Object.entries(otx).filter(([, v]) => v.pulses).map(([k, v]) => k + " — " + v.pulses + " OTX pulse(s)")
+    .concat(Object.entries(abuse).map(([k, v]) => k + " — AbuseIPDB score " + v.score + (v.reports ? " (" + v.reports + " reports)" : "")));
+  const search = (i.search && i.search.results) || [];
+  const leaks = i.leak_index || null;
+  if (!listed.length && !search.length && !leaks && !Object.keys(otx).length && !Object.keys(abuse).length) return "";
+  const rows = (arr) => (arr.length ? arr.map((v) => '<div class="mono small">' + esc(v) + "</div>").join("") : '<span class="faint small">nothing found</span>');
+  return '<div class="grid grid-3 section"><div><div class="small faint">Threat intel (OTX / AbuseIPDB)</div>' + rows(listed) + "</div>" +
+    '<div><div class="small faint">Search engine results' + (i.search ? " (" + esc(i.search.provider || "") + ")" : "") + "</div>" + '<div class="scroll-box">' + rows(search.slice(0, 50).map((r) => (r.own_site ? "[own] " : "") + r.url)) + "</div></div>" +
+    '<div><div class="small faint">Paste / leak / dark-web index</div>' + rows(leaks ? Object.entries(leaks.buckets || {}).map(([k, v]) => k + ": " + v) : []) + "</div></div>";
+}
+
 async function renderInfra() {
   const rows = await api("/intel/domains");
   let html = pageHead("Monitoring", "Domain & infrastructure", "Public records gathered for your verified domains: DNS, mail security, certificate-transparency subdomains, registration data and IP ownership.");
@@ -798,8 +811,9 @@ async function renderInfra() {
     return '<section class="card section"><div class="card-head"><div><h3>' + esc(d.domain) + '</h3><p class="card-subtext">' + (d.scanned_at ? "Scanned " + esc(fmtDate(d.scanned_at)) + ' · <a class="link-button" href="#/scan/' + esc(d.scan_id) + '">open findings</a>' : d.verified ? "Not scanned yet" : "Not verified") + "</p></div></div>" +
       (d.scanned_at ? '<div class="grid grid-3 section"><div><div class="small faint">A / AAAA</div>' + list((dns.A || []).concat(dns.AAAA || [])) + '</div><div><div class="small faint">MX</div>' + list(dns.MX) + '</div><div><div class="small faint">NS</div>' + list(dns.NS) + "</div>" +
         '<div><div class="small faint">SPF</div>' + list(i.spf ? [i.spf] : []) + '</div><div><div class="small faint">DMARC</div>' + list(i.dmarc ? [i.dmarc] : []) + '</div><div><div class="small faint">Registration (RDAP)</div>' + list(i.rdap ? ["Registrar: " + (i.rdap.registrar || "?"), "Expires: " + (i.rdap.expires || "?")] : []) + "</div></div>" +
-        '<div class="grid grid-2 section"><div><div class="small faint">IP owners</div>' + list((i.ips || []).map((x) => x.ip + " — " + (x.network || "?") + " " + (x.country || ""))) + (i.services && i.services.length ? '<div class="small faint section">Open ports (Shodan)</div>' + list(i.services.map((s) => s.ip + ":" + s.port)) : "") + "</div>" +
+        '<div class="grid grid-2 section"><div><div class="small faint">IP owners</div>' + list((i.ips || []).map((x) => x.ip + " — " + (x.asn ? "AS" + x.asn + " " + (x.asn_name || "") : (x.network || "?")) + " " + (x.geo && (x.geo.city || x.geo.country) ? [x.geo.city, x.geo.country].filter(Boolean).join(", ") : (x.country || x.asn_country || "")))) + (i.services && i.services.length ? '<div class="small faint section">Open ports (Shodan)</div>' + list(i.services.map((s) => s.ip + ":" + s.port)) : "") + "</div>" +
         '<div><div class="small faint">Subdomains from certificate logs (' + (i.subdomains || []).length + ")</div>" + '<div class="scroll-box">' + list((i.subdomains || []).slice(0, 200)) + "</div></div></div>" +
+        infraIntel(i) +
         (d.notes && d.notes.length ? '<p class="hint section">' + d.notes.map(esc).join("<br>") + "</p>" : "") : "") + "</section>";
   }).join("");
   view().innerHTML = html;
@@ -849,9 +863,10 @@ const INTEGRATION_FIELDS = {
   telegram: [["bot_token", "Bot token", "123456:ABC…"], ["chat_id", "Chat id", "-1001234567890"]],
   webhook: [["url", "HTTPS endpoint (SIEM / SOAR / custom)", "https://siem.example.com/ingest"], ["secret", "Signing secret (optional, HMAC-SHA256 in X-OPSEC-Signature)", ""]],
   github_issues: [["repo", "Repository (owner/name)", "you/security-alerts"], ["token", "Token with issues: write", "github_pat_…"]],
+  jira: [["base_url", "Jira Cloud site", "https://your-team.atlassian.net"], ["email", "Atlassian account email", "you@example.com"], ["api_token", "API token", "ATATT…"], ["project_key", "Project key", "SEC"], ["issue_type", "Issue type", "Task"]],
   email: [],
 };
-const INTEGRATION_LABEL = { slack: "Slack", discord: "Discord", telegram: "Telegram", webhook: "Webhook (SIEM / SOAR)", github_issues: "GitHub Issues", email: "Email (your account address)" };
+const INTEGRATION_LABEL = { slack: "Slack", discord: "Discord", telegram: "Telegram", webhook: "Webhook (SIEM / SOAR)", github_issues: "GitHub Issues", jira: "Jira", email: "Email (your account address)" };
 
 async function renderIntegrations() {
   const rows = await api("/integrations");
@@ -864,7 +879,7 @@ async function renderIntegrations() {
     '<div class="form-row"><div class="field"><label for="iSev">Minimum severity</label><select id="iSev" class="select"><option>CRITICAL</option><option selected>HIGH</option><option>MEDIUM</option><option>LOW</option></select></div><div class="field"><label for="iNew">Send</label><select id="iNew" class="select"><option value="true">New findings only</option><option value="false">Every matching finding</option></select></div></div>' +
     '<div><button class="btn" type="submit">Save destination</button></div></form></section></div>';
   view().innerHTML = html;
-  const fields = () => { $("iFields").innerHTML = INTEGRATION_FIELDS[$("iKind").value].map(([k, label, ph]) => '<div class="field"><label for="if_' + k + '">' + esc(label) + '</label><input id="if_' + k + '" data-cfg="' + k + '" class="input" placeholder="' + esc(ph) + '" autocomplete="off"' + (k === "secret" ? "" : " required") + "></div>").join("") || '<p class="hint">Uses the server\'s SMTP settings and sends to ' + esc(state.user.email) + ".</p>"; };
+  const fields = () => { $("iFields").innerHTML = INTEGRATION_FIELDS[$("iKind").value].map(([k, label, ph]) => '<div class="field"><label for="if_' + k + '">' + esc(label) + '</label><input id="if_' + k + '" data-cfg="' + k + '" class="input" type="' + (/token|secret/.test(k) ? "password" : "text") + '" placeholder="' + esc(ph) + '" autocomplete="off"' + (k === "secret" || k === "issue_type" ? "" : " required") + "></div>").join("") || '<p class="hint">Uses the server\'s SMTP settings and sends to ' + esc(state.user.email) + ".</p>"; };
   $("iKind").addEventListener("change", fields); fields();
   $("intForm").addEventListener("submit", async (e) => {
     e.preventDefault();

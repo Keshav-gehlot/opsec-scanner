@@ -112,6 +112,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Bearer token for --report-activity. Falls back to the OPSEC_PLATFORM_TOKEN environment variable if not given.",
     )
     parser.add_argument(
+        "--no-ner",
+        action="store_true",
+        help="Skip the name-detection pass (your real name and, with spaCy installed, other people's names in "
+             "documents and web text).",
+    )
+    parser.add_argument(
         "--verify-secrets",
         action="store_true",
         help="Ask each found credential's own issuer (GitHub, Slack, Stripe, OpenAI, Anthropic, SendGrid, npm, "
@@ -305,6 +311,13 @@ def cli() -> None:
 
     rules = load_rules()
     matches = scan_findings(all_findings, rules, entropy_threshold=args.entropy_threshold)
+    if not args.no_ner:
+        from opsec_scanner.analysis.ner import ner_backend, ner_matches
+
+        named = ner_matches(all_findings, profile)
+        if named:
+            console.print(f"[dim]Name detection ({ner_backend()}): {len(named)} match(es)[/dim]")
+        matches += named
     console.print(f"[bold]{len(matches)}[/bold] findings matched a detection rule")
 
     exposure_override = ExposureLevel.PUBLIC_REACHABLE if args.public_repo else None

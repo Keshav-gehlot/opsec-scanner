@@ -73,6 +73,36 @@ DIRECT_RULES: dict[str, tuple[str, float, str, str]] = {
     "public_code_mention": ("code_exposure", 3.0, "T1593.003", "Identifier appears in public code on GitHub"),
     "breach_exposure": ("credentials", 7.5, "T1589.001", "Address appears in a known data breach"),
     "paste_exposure": ("credentials", 6.5, "T1589.001", "Address appears in a public paste"),
+    # osint/intel.py
+    "search_indexed_sensitive_file": ("misconfiguration", 7.0, "T1593.002", "Search engines index a sensitive file on your site"),
+    "search_indexed_directory_listing": ("misconfiguration", 4.5, "T1593.002", "Search engines index a directory listing on your site"),
+    "search_external_mention": ("personal", 2.5, "T1593.002", "Your address or domain appears on a third-party page"),
+    "handle_reused_on_platform": ("identity", 2.0, "T1593.001", "The same username exists on another platform, linking your identities"),
+    "darkweb_mention": ("credentials", 8.0, "T1597.002", "Mentioned in a darknet (Tor/I2P) source indexed by Intelligence X"),
+    "leak_index_exposure": ("credentials", 7.5, "T1589.001", "Appears in a data leak indexed by Intelligence X"),
+    "threat_intel_listing": ("infrastructure", 6.0, "T1584", "Listed in threat-intel pulses (possibly compromised or abused)"),
+    "ip_abuse_reported": ("infrastructure", 6.5, "T1584", "IP address has recent abuse reports on AbuseIPDB"),
+}
+
+# Rule-specific fixes for the checks above (the rest fall back to category advice).
+DIRECT_REMEDIATION: dict[str, str] = {
+    "exposed_git_directory": "Block /.git on the web server (or remove it from the web root) and rotate every secret in the repository history.",
+    "exposed_env_file": "Remove the .env file from the web root, block dotfiles on the server, and rotate every credential it contained.",
+    "missing_spf": "Publish an SPF TXT record listing only your real senders and ending in -all.",
+    "missing_dmarc": "Publish _dmarc TXT 'v=DMARC1; p=quarantine; rua=mailto:...' and move to p=reject once reports look clean.",
+    "weak_dmarc_policy": "Move the DMARC policy from p=none to p=quarantine, then p=reject.",
+    "whois_registrant_exposed": "Turn on WHOIS privacy / redaction with your registrar.",
+    "open_sensitive_port": "Close the port to the internet (firewall / security group) or put the service behind a VPN.",
+    "breach_exposure": "Change the password everywhere it was reused and turn on two-factor authentication.",
+    "paste_exposure": "Treat anything in the paste as compromised: rotate credentials and ask the paste site to remove it.",
+    "search_indexed_sensitive_file": "Delete or block the file on the server, rotate anything in it, then request removal from the search engine (e.g. Google Search Console > Removals).",
+    "search_indexed_directory_listing": "Disable directory listing (Apache: Options -Indexes; nginx: autoindex off) and request removal from search results.",
+    "search_external_mention": "Check the page; if it exposes more than intended, ask the site owner to remove it.",
+    "handle_reused_on_platform": "If that account is yours, make sure it shares nothing you would not link to your real identity; if it is not, be aware others may impersonate you.",
+    "darkweb_mention": "Assume the referenced data is in criminal hands: rotate related credentials, enable 2FA and watch for phishing that uses it.",
+    "leak_index_exposure": "Rotate any credential tied to the leaked record and enable two-factor authentication.",
+    "threat_intel_listing": "Check the host for compromise (unexpected processes, web shells, outbound traffic) and clean or rebuild it.",
+    "ip_abuse_reported": "If the IP is yours, look for compromise or abuse (spam, scanning); if it is shared hosting, consider moving.",
 }
 
 SENSITIVE_SUBDOMAIN_RE = re.compile(
@@ -300,6 +330,9 @@ def public_records(domain: str, dns_lookup=_dns, api_get=net.api_get) -> Collect
         except Exception:
             pass
         ips.append(info)
+    from opsec_platform.app.osint.intel import ip_enrichment
+
+    ip_enrichment(ips, dns_lookup, api_get=api_get)
     result.intel["ips"] = ips
 
     key = os.environ.get("PLATFORM_SHODAN_API_KEY", "").strip()

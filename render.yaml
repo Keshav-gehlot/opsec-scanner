@@ -66,3 +66,15 @@ services:
         sync: false
       - key: PLATFORM_SHODAN_API_KEY
         sync: false
+      - key: PLATFORM_BRAVE_SEARCH_API_KEY
+        sync: false
+      - key: PLATFORM_SEARXNG_URL
+        sync: false
+      - key: PLATFORM_INTELX_API_KEY
+        sync: false
+      - key: PLATFORM_IPINFO_TOKEN
+        sync: false
+      - key: PLATFORM_OTX_API_KEY
+        sync: false
+      - key: PLATFORM_ABUSEIPDB_API_KEY
+        sync: false

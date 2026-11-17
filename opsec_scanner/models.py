@@ -26,6 +26,11 @@ class SourceType(str, Enum):
     CODE_SEARCH = "code_search"
     BREACH_RECORD = "breach_record"
     SERVICE_SCAN = "service_scan"
+    SEARCH_RESULT = "search_result"
+    SOCIAL_PROFILE = "social_profile"
+    LEAK_INDEX = "leak_index"
+    THREAT_INTEL = "threat_intel"
+    NER_ENTITY = "ner_entity"
 
 
 @dataclass
