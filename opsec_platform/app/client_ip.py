@@ -43,10 +43,21 @@ def proxy_secret_required() -> bool:
     return os.environ.get("PLATFORM_REQUIRE_PROXY_SECRET", "false").strip().lower() == "true"
 
 
+def previous_proxy_secret() -> str:
+    """Optional old value still accepted while rotating (set it to the old
+    secret, change PLATFORM_PROXY_SECRET on both sides, then clear it)."""
+    return os.environ.get("PLATFORM_PROXY_SECRET_PREVIOUS", "").strip()
+
+
 def has_valid_proxy_secret(request: Request) -> bool:
     secret = proxy_secret()
     supplied = request.headers.get(PROXY_SECRET_HEADER, "")
-    return bool(secret) and bool(supplied) and hmac.compare_digest(supplied.encode(), secret.encode())
+    if not secret or not supplied:
+        return False
+    accepted = [secret] + ([previous_proxy_secret()] if previous_proxy_secret() else [])
+    # Compare against every accepted value so timing does not reveal which matched.
+    results = [hmac.compare_digest(supplied.encode(), value.encode()) for value in accepted]
+    return any(results)
 
 
 def _valid_ip(value: str) -> str | None:
