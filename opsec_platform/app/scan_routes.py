@@ -74,6 +74,8 @@ class FindingOut(BaseModel):
     context: str | None
     occurrence_count: int
     status: str = "open"
+    ai_verdict: str | None = None
+    ai_reason: str | None = None
     mitre: str | None = None
     remediation: str | None = None
     model_config = ConfigDict(from_attributes=True)

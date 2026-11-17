@@ -33,6 +33,10 @@ DIRECT_SOURCE = {
     "sensitive_subdomain": SourceType.CERT_TRANSPARENCY, "open_sensitive_port": SourceType.SERVICE_SCAN,
     "public_code_mention": SourceType.CODE_SEARCH, "breach_exposure": SourceType.BREACH_RECORD,
     "paste_exposure": SourceType.BREACH_RECORD,
+    "search_indexed_sensitive_file": SourceType.SEARCH_RESULT, "search_indexed_directory_listing": SourceType.SEARCH_RESULT,
+    "search_external_mention": SourceType.SEARCH_RESULT, "handle_reused_on_platform": SourceType.SOCIAL_PROFILE,
+    "darkweb_mention": SourceType.LEAK_INDEX, "leak_index_exposure": SourceType.LEAK_INDEX,
+    "threat_intel_listing": SourceType.THREAT_INTEL, "ip_abuse_reported": SourceType.THREAT_INTEL,
 }
 
 
@@ -66,19 +70,27 @@ def owned_asset_scoring(scored):
 
 def collect(target: MonitoredTarget, verified_domains: list[str]) -> collectors.CollectorResult:
     result = collectors.CollectorResult()
+    from opsec_platform.app.osint import intel
+
     if target.kind == "domain":
         result.extend(collectors.exposure_checks(target.value))
         result.extend(collectors.crawl_site([f"https://{target.value}/"], verified_domains))
         result.extend(collectors.public_records(target.value))
         result.extend(collectors.github_code_search(target.value))
+        result.extend(intel.search_dorks("domain", target.value, verified_domains))
+        result.extend(intel.leak_index(target.value))
+        result.extend(intel.threat_intel(target.value, [i["ip"] for i in result.intel.get("ips", [])]))
     elif target.kind == "url":
         result.extend(collectors.crawl_site([target.value], verified_domains, max_pages=20, max_depth=1))
     elif target.kind == "email":
         result.extend(collectors.breach_check(target.value))
         result.extend(collectors.github_code_search(target.value))
+        result.extend(intel.search_dorks("email", target.value, verified_domains))
+        result.extend(intel.leak_index(target.value))
     elif target.kind == "github_handle":
         result.extend(collectors.github_handle(target.value))
         result.extend(_scan_handle_repos(result.intel.get("github", {}).get("repos", [])))
+        result.extend(intel.username_presence(target.value))
     return result
 
 

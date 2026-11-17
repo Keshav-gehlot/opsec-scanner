@@ -235,6 +235,9 @@ class Finding(Base):
     # Triage status, copied from FindingState when the scan is stored so it
     # survives re-scans: open | in_review | resolved | suppressed | false_positive
     status = Column(String, nullable=False, default="open")
+    # Optional LLM triage (PLATFORM_LLM_TRIAGE): likely_real | likely_test | unclear
+    ai_verdict = Column(String, nullable=True)
+    ai_reason = Column(Text, nullable=True)
 
     scan = relationship("Scan", back_populates="findings")
 
@@ -286,7 +289,7 @@ class Integration(Base):
 
     id = Column(String, primary_key=True, default=_uuid)
     user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
-    kind = Column(String, nullable=False)     # slack | discord | telegram | webhook | github_issues | email
+    kind = Column(String, nullable=False)     # slack | discord | telegram | webhook | github_issues | jira | email
     name = Column(String, nullable=False)
     config_encrypted = Column(Text, nullable=False)
     config_hint = Column(String, nullable=True)  # safe-to-show summary, e.g. "hooks.slack.com/…/abc"

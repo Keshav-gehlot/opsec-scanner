@@ -190,9 +190,16 @@ def rule_meta() -> dict:
         meta = {r.id: {"category": r.category, "mitre": r.mitre, "description": r.description,
                        "base_severity": r.base_severity,
                        "remediation": r.remediation or CATEGORY_REMEDIATION.get(r.category)} for r in load_rules()}
-        for rid, (category, severity, mitre, description) in DIRECT_RULES.items():
+        from opsec_scanner.analysis.ner import NER_REMEDIATION, NER_RULES
+
+        for rid, (category, severity, mitre, description) in NER_RULES.items():
             meta[rid] = {"category": category, "mitre": mitre, "description": description, "base_severity": severity,
-                         "remediation": CATEGORY_REMEDIATION.get(category)}
+                         "remediation": NER_REMEDIATION[rid]}
+        for rid, (category, severity, mitre, description) in DIRECT_RULES.items():
+            from opsec_platform.app.osint.collectors import DIRECT_REMEDIATION
+
+            meta[rid] = {"category": category, "mitre": mitre, "description": description, "base_severity": severity,
+                         "remediation": DIRECT_REMEDIATION.get(rid) or CATEGORY_REMEDIATION.get(category)}
         _RULE_META = meta
     return _RULE_META
 
@@ -214,9 +221,14 @@ def analyze(raw_findings, profile_data: dict, public: bool = False, extra_matche
     status = rules_status()
     if not status["ok"]:
         raise RuntimeError("Detection rules are unavailable on this server.")
+    from opsec_scanner.analysis.ner import ner_matches
+
+    profile = to_target_profile(profile_data)
     matches = scan_findings(raw_findings, load_rules()) + list(extra_matches or [])
+    if os.environ.get("PLATFORM_NER_ENABLED", "true").strip().lower() != "false":
+        matches += ner_matches(raw_findings, profile)
     exposure = ExposureLevel.PUBLIC_REACHABLE if public else None
-    scored = score_findings(matches, to_target_profile(profile_data), exposure_override=exposure)
+    scored = score_findings(matches, profile, exposure_override=exposure)
     return deduplicate_findings(scored)
 
 
@@ -364,6 +376,11 @@ def store_results(db: DBSession, scan: Scan, records: list[FindingRecord], stats
     scan.completed_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(scan)
+    if records:
+        from opsec_platform.app import triage
+
+        if triage.enabled():
+            submit(triage.triage_scan, scan.id)
     if notify and records:
         try:
             from opsec_platform.app import alerts

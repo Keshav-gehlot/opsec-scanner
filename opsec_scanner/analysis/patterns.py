@@ -320,4 +320,6 @@ def _remediation_map() -> dict[str, str]:
 
 def remediation_for(rule_id: str, category: str | None = None) -> str | None:
     """Rule-specific fix from the rule set, else general advice for its category."""
-    return _remediation_map().get(rule_id) or CATEGORY_REMEDIATION.get(category or "")
+    from opsec_scanner.analysis.ner import NER_REMEDIATION
+
+    return _remediation_map().get(rule_id) or NER_REMEDIATION.get(rule_id) or CATEGORY_REMEDIATION.get(category or "")

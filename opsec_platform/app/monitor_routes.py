@@ -326,7 +326,7 @@ def rule_catalog(user: User = Depends(get_api_user)):
 # --------------------------------------------------------------------------
 
 class IntegrationIn(BaseModel):
-    kind: str = Field(pattern="^(slack|discord|telegram|webhook|github_issues|email)$")
+    kind: str = Field(pattern="^(slack|discord|telegram|webhook|github_issues|jira|email)$")
     name: str = Field(min_length=1, max_length=80)
     config: dict = Field(default_factory=dict)
     min_severity: str = Field(default="HIGH", pattern="^(LOW|MEDIUM|HIGH|CRITICAL)$")

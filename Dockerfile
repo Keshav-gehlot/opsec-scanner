@@ -21,7 +21,9 @@ WORKDIR /app
 COPY pyproject.toml README.md alembic.ini ./
 COPY opsec_scanner ./opsec_scanner
 COPY opsec_platform ./opsec_platform
-RUN pip install '.[platform]'
+ARG INSTALL_NLP=false
+RUN pip install '.[platform]' \
+ && if [ "$INSTALL_NLP" = "true" ]; then pip install '.[nlp]' && python -m spacy download en_core_web_sm; fi
 
 # Never run the API as root.
 RUN useradd --create-home --uid 10001 app
